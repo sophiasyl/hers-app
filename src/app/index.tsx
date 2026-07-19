@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -8,7 +8,8 @@ import { CycleRing } from '@/components/CycleRing';
 import { Card, ScreenHeader, SectionTitle } from '@/components/ui';
 import { FLOW_LEVELS, useCycle, type FlowLevel } from '@/lib/cycle';
 import { dayKey } from '@/lib/format';
-import { fonts, radius, spacing, useTheme } from '@/lib/theme';
+import { SYMPTOMS, useWellness } from '@/lib/wellness';
+import { fonts, MOODS, moodByKey, radius, spacing, useTheme, type MoodKey } from '@/lib/theme';
 
 function trendColor(trend: string, c: ReturnType<typeof useTheme>) {
   if (trend === '↑') return c.green;
@@ -18,14 +19,41 @@ function trendColor(trend: string, c: ReturnType<typeof useTheme>) {
 
 export default function TrackScreen() {
   const c = useTheme();
-  const { today, flowLogs, logFlow, startPeriodToday } = useCycle();
-  const [modal, setModal] = useState(false);
-  const loggedToday = flowLogs[dayKey(Date.now())];
+  const { today, flowLogs, logFlow } = useCycle();
+  const { logs: wellnessLogs, saveDay } = useWellness();
 
-  const onLog = (level: FlowLevel) => {
-    logFlow(level);
+  const todayKey = dayKey(Date.now());
+  const loggedFlow = flowLogs[todayKey];
+  const todayWellness = wellnessLogs[todayKey];
+
+  const [modal, setModal] = useState(false);
+  const [flow, setFlow] = useState<FlowLevel | null>(null);
+  const [mood, setMood] = useState<MoodKey | null>(null);
+  const [symptoms, setSymptoms] = useState<string[]>([]);
+
+  const open = () => {
+    setFlow(loggedFlow ?? null);
+    setMood(todayWellness?.mood ?? null);
+    setSymptoms(todayWellness?.symptoms ?? []);
+    setModal(true);
+  };
+
+  const toggleSymptom = (s: string) =>
+    setSymptoms((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
+
+  const save = () => {
+    if (flow) logFlow(flow);
+    saveDay(todayKey, { mood, symptoms });
     setModal(false);
   };
+
+  const summary = [
+    loggedFlow ? FLOW_LEVELS.find((f) => f.key === loggedFlow)?.label : null,
+    todayWellness?.mood ? moodByKey(todayWellness.mood)?.label : null,
+    todayWellness?.symptoms?.length
+      ? `${todayWellness.symptoms.length} symptom${todayWellness.symptoms.length === 1 ? '' : 's'}`
+      : null,
+  ].filter(Boolean);
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: c.bg }]} edges={['top']}>
@@ -33,12 +61,7 @@ export default function TrackScreen() {
         <ScreenHeader title="Hers." />
 
         <View style={styles.ringWrap}>
-          <CycleRing
-            progress={today.progress}
-            day={today.day}
-            label={today.content.label}
-            color={c.green}
-          />
+          <CycleRing progress={today.progress} day={today.day} label={today.content.label} color={c.green} />
         </View>
 
         <View style={styles.hormones}>
@@ -70,15 +93,14 @@ export default function TrackScreen() {
         </Card>
 
         <Pressable
-          onPress={() => setModal(true)}
+          onPress={open}
           style={[styles.cta, { backgroundColor: c.tan }]}
-          accessibilityRole="button">
-          <Text style={[styles.ctaText, { color: '#FFFFFF' }]}>Log Today's Flow</Text>
+          accessibilityRole="button"
+          accessibilityLabel="Log today">
+          <Text style={[styles.ctaText, { color: '#FFFFFF' }]}>Log today</Text>
         </Pressable>
-        {loggedToday ? (
-          <Text style={[styles.loggedNote, { color: c.textTertiary }]}>
-            Logged today: {FLOW_LEVELS.find((f) => f.key === loggedToday)?.label}
-          </Text>
+        {summary.length > 0 ? (
+          <Text style={[styles.loggedNote, { color: c.textTertiary }]}>Today: {summary.join(' · ')}</Text>
         ) : null}
 
         <SectionTitle style={styles.calendarTitle}>Cycle calendar</SectionTitle>
@@ -88,29 +110,76 @@ export default function TrackScreen() {
       <Modal visible={modal} transparent animationType="slide" onRequestClose={() => setModal(false)}>
         <Pressable style={styles.backdrop} onPress={() => setModal(false)}>
           <Pressable style={[styles.sheet, { backgroundColor: c.surface }]} onPress={() => {}}>
-            <Text style={[styles.sheetTitle, { color: c.text }]}>Log today's flow</Text>
-            <View style={styles.flowRow}>
-              {FLOW_LEVELS.map((f) => (
-                <Pressable
-                  key={f.key}
-                  onPress={() => onLog(f.key)}
-                  style={[styles.flowChip, { borderColor: f.color, backgroundColor: f.color + '1A' }]}>
-                  <View style={[styles.flowDot, { backgroundColor: f.color }]} />
-                  <Text style={[styles.flowLabel, { color: c.text }]}>{f.label}</Text>
-                </Pressable>
-              ))}
-            </View>
-            <Pressable
-              onPress={() => {
-                startPeriodToday();
-                setModal(false);
-              }}
-              style={[styles.startBtn, { backgroundColor: c.green }]}>
-              <Text style={[styles.startText, { color: c.accentText }]}>My period started today</Text>
+            <Text style={[styles.sheetTitle, { color: c.text }]}>Log today</Text>
+
+            <ScrollView style={styles.sheetScroll} showsVerticalScrollIndicator={false}>
+              <Text style={[styles.sectionLabel, { color: c.textTertiary }]}>FLOW</Text>
+              <View style={styles.chipWrap}>
+                {FLOW_LEVELS.map((f) => {
+                  const sel = flow === f.key;
+                  return (
+                    <Pressable
+                      key={f.key}
+                      onPress={() => setFlow(sel ? null : f.key)}
+                      accessibilityLabel={`Flow ${f.label}`}
+                      style={[
+                        styles.flowChip,
+                        { borderColor: f.color, backgroundColor: sel ? f.color + '33' : 'transparent' },
+                      ]}>
+                      <View style={[styles.flowDot, { backgroundColor: f.color }]} />
+                      <Text style={[styles.flowLabel, { color: c.text }]}>{f.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <Text style={[styles.sectionLabel, { color: c.textTertiary }]}>MOOD</Text>
+              <View style={styles.moodRow}>
+                {MOODS.map((m) => {
+                  const sel = mood === m.key;
+                  return (
+                    <Pressable
+                      key={m.key}
+                      onPress={() => setMood(sel ? null : m.key)}
+                      accessibilityLabel={`Mood ${m.label}`}
+                      style={[styles.moodItem, sel && { backgroundColor: m.color + '24' }]}>
+                      <MaterialCommunityIcons
+                        name={m.icon as never}
+                        size={30}
+                        color={sel ? m.color : c.textTertiary}
+                      />
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <Text style={[styles.sectionLabel, { color: c.textTertiary }]}>SYMPTOMS</Text>
+              <View style={styles.chipWrap}>
+                {SYMPTOMS.map((s) => {
+                  const sel = symptoms.includes(s);
+                  return (
+                    <Pressable
+                      key={s}
+                      onPress={() => toggleSymptom(s)}
+                      accessibilityLabel={s}
+                      accessibilityState={{ selected: sel }}
+                      style={[
+                        styles.symptomChip,
+                        {
+                          backgroundColor: sel ? c.green : c.surfaceAlt,
+                          borderColor: sel ? c.green : c.border,
+                        },
+                      ]}>
+                      <Text style={[styles.symptomText, { color: sel ? c.accentText : c.text }]}>{s}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </ScrollView>
+
+            <Pressable onPress={save} style={[styles.saveBtn, { backgroundColor: c.green }]}>
+              <Text style={[styles.saveText, { color: c.accentText }]}>Save</Text>
             </Pressable>
-            <Text style={[styles.startHint, { color: c.textTertiary }]}>
-              This recalibrates your cycle to Day 1.
-            </Text>
           </Pressable>
         </Pressable>
       </Modal>
@@ -122,12 +191,7 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   content: { padding: spacing.lg, paddingBottom: spacing.xxl },
   ringWrap: { alignItems: 'center', marginTop: spacing.md, marginBottom: spacing.lg },
-  hormones: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: spacing.xl,
-    marginBottom: spacing.md,
-  },
+  hormones: { flexDirection: 'row', justifyContent: 'center', gap: spacing.xl, marginBottom: spacing.md },
   hormone: { flexDirection: 'row', alignItems: 'baseline', gap: 4 },
   hormoneName: { fontSize: 14, fontWeight: '500' },
   hormoneState: { fontSize: 14 },
@@ -157,10 +221,11 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
     padding: spacing.xl,
-    gap: spacing.md,
   },
-  sheetTitle: { fontSize: 20, fontFamily: fonts.serif, marginBottom: spacing.xs },
-  flowRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  sheetTitle: { fontSize: 22, fontFamily: fonts.serif, marginBottom: spacing.md },
+  sheetScroll: { maxHeight: 400 },
+  sectionLabel: { fontSize: 12, letterSpacing: 1, marginTop: spacing.md, marginBottom: spacing.sm },
+  chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   flowChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -172,12 +237,20 @@ const styles = StyleSheet.create({
   },
   flowDot: { width: 12, height: 12, borderRadius: 6 },
   flowLabel: { fontSize: 14, fontWeight: '500' },
-  startBtn: {
-    borderRadius: radius.md,
-    paddingVertical: spacing.md,
-    alignItems: 'center',
-    marginTop: spacing.sm,
+  moodRow: { flexDirection: 'row', gap: spacing.xs },
+  moodItem: { padding: spacing.sm, borderRadius: radius.pill },
+  symptomChip: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.pill,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
   },
-  startText: { fontSize: 15, fontWeight: '500' },
-  startHint: { fontSize: 12, textAlign: 'center' },
+  symptomText: { fontSize: 14 },
+  saveBtn: {
+    borderRadius: radius.pill,
+    paddingVertical: spacing.lg,
+    alignItems: 'center',
+    marginTop: spacing.lg,
+  },
+  saveText: { fontSize: 16, fontWeight: '600' },
 });

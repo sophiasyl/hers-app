@@ -6,7 +6,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Card, ScreenHeader, SectionTitle } from '@/components/ui';
 import { FLOW_LEVELS, useCycle } from '@/lib/cycle';
 import { useEntries } from '@/lib/entries';
-import { fonts, radius, spacing, useTheme } from '@/lib/theme';
+import { useWellness } from '@/lib/wellness';
+import { fonts, MOODS, radius, spacing, useTheme } from '@/lib/theme';
 
 const DAY = 86400000;
 
@@ -22,6 +23,25 @@ export default function InsightsScreen() {
   const c = useTheme();
   const { today, flowLogs } = useCycle();
   const { entries } = useEntries();
+  const { logs: wellnessLogs } = useWellness();
+
+  const wellness = useMemo(() => {
+    const arr = Object.values(wellnessLogs);
+    const moodCounts = MOODS.map((m) => ({
+      key: m.key,
+      label: m.label,
+      color: m.color,
+      count: arr.filter((w) => w.mood === m.key).length,
+    }));
+    const moodTotal = moodCounts.reduce((a, b) => a + b.count, 0);
+    const maxMood = Math.max(1, ...moodCounts.map((m) => m.count));
+    const symptomCounts: Record<string, number> = {};
+    arr.forEach((w) => (w.symptoms ?? []).forEach((s) => (symptomCounts[s] = (symptomCounts[s] ?? 0) + 1)));
+    const topSymptoms = Object.entries(symptomCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+    return { moodCounts, moodTotal, maxMood, topSymptoms };
+  }, [wellnessLogs]);
 
   const stats = useMemo(() => {
     const history = today.history;
@@ -117,6 +137,52 @@ export default function InsightsScreen() {
           <Text style={[styles.note, { color: c.textSecondary }]}>{REGULARITY_NOTE[stats.regularity]}</Text>
         </Card>
 
+        <Card variant="outline" style={styles.chartCard}>
+          <Text style={[styles.cardTitle, { color: c.text }]}>How you&apos;ve been feeling</Text>
+          {wellness.moodTotal > 0 || wellness.topSymptoms.length > 0 ? (
+            <>
+              {wellness.moodTotal > 0 ? (
+                <View style={styles.moodList}>
+                  {wellness.moodCounts.map((m) => (
+                    <View key={m.key} style={styles.moodRow}>
+                      <Text style={[styles.moodLabel, { color: c.textSecondary }]}>{m.label}</Text>
+                      <View style={[styles.moodTrack, { backgroundColor: c.surfaceAlt }]}>
+                        <View
+                          style={[
+                            styles.moodFill,
+                            { width: `${Math.round((m.count / wellness.maxMood) * 100)}%`, backgroundColor: m.color },
+                          ]}
+                        />
+                      </View>
+                      <Text style={[styles.moodCount, { color: c.textTertiary }]}>{m.count}</Text>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+              {wellness.topSymptoms.length > 0 ? (
+                <>
+                  <Text style={[styles.subLabel, { color: c.textTertiary }]}>Most common symptoms</Text>
+                  <View style={styles.symptomRows}>
+                    {wellness.topSymptoms.map(([name, count]) => (
+                      <View key={name} style={styles.symptomRow}>
+                        <Text style={[styles.symptomName, { color: c.text }]}>{name}</Text>
+                        <Text style={[styles.symptomCount, { color: c.textSecondary }]}>
+                          {count}×
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                </>
+              ) : null}
+            </>
+          ) : (
+            <Text style={[styles.emptyChart, { color: c.textTertiary }]}>
+              Log your mood and symptoms with “Log today” on the Track tab, and your patterns will
+              show up here.
+            </Text>
+          )}
+        </Card>
+
         <Card style={styles.feelCard}>
           <Text style={[styles.cardTitle, { color: c.text }]}>What you&apos;ve logged</Text>
           <View style={styles.feelList}>
@@ -163,4 +229,16 @@ const styles = StyleSheet.create({
   feelIcon: {},
   feelText: { flex: 1, fontSize: 15 },
   feelValue: { fontSize: 15, fontFamily: fonts.serif },
+  moodList: { gap: spacing.sm, marginBottom: spacing.md },
+  moodRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  moodLabel: { fontSize: 13, width: 44 },
+  moodTrack: { flex: 1, height: 8, borderRadius: radius.pill, overflow: 'hidden' },
+  moodFill: { height: 8, borderRadius: radius.pill, minWidth: 2 },
+  moodCount: { fontSize: 12, width: 18, textAlign: 'right' },
+  subLabel: { fontSize: 12, letterSpacing: 0.5, marginTop: spacing.sm, marginBottom: spacing.sm },
+  symptomRows: { gap: spacing.xs },
+  symptomRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  symptomName: { fontSize: 14 },
+  symptomCount: { fontSize: 14 },
 });
+

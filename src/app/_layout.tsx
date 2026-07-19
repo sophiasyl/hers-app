@@ -13,6 +13,7 @@ import { CycleProvider } from '@/lib/cycle';
 import { EntriesProvider } from '@/lib/entries';
 import { SessionProvider, useSession } from '@/lib/session';
 import { SettingsProvider, useSettings } from '@/lib/settings';
+import { WellnessProvider } from '@/lib/wellness';
 import { palette, spacing, useTheme } from '@/lib/theme';
 
 function TabButton({
@@ -89,7 +90,9 @@ function Gate() {
   return (
     <CycleProvider key={email} userKey={email}>
       <EntriesProvider userKey={email}>
-        {profile.onboarded ? <AppChrome /> : <Onboarding />}
+        <WellnessProvider userKey={email}>
+          {profile.onboarded ? <AppChrome /> : <Onboarding />}
+        </WellnessProvider>
       </EntriesProvider>
     </CycleProvider>
   );
