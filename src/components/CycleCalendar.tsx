@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Card } from '@/components/ui';
-import { computeCycle, PHASE_CONTENT, useCycle, type Phase } from '@/lib/cycle';
+import { FLOW_LEVELS, PHASE_CONTENT, useCycle, type Phase } from '@/lib/cycle';
 import { fonts, radius, spacing, useTheme } from '@/lib/theme';
 
 const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -24,7 +24,7 @@ function startOfDay(ts: number): number {
 
 export function CycleCalendar() {
   const c = useTheme();
-  const { config } = useCycle();
+  const { phaseFor, flowLogs } = useCycle();
   const todayKey = startOfDay(Date.now());
 
   const [view, setView] = useState(() => {
@@ -74,15 +74,19 @@ export function CycleCalendar() {
         {cells.map((d, i) => {
           if (d === null) return <View key={i} style={styles.cell} />;
           const dateMs = new Date(year, month, d).getTime();
-          const { phase } = computeCycle(config, dateMs);
-          const color = PHASE_CONTENT[phase].color;
+          const logged = flowLogs[`${year}-${month}-${d}`];
+          const phaseColor = PHASE_CONTENT[phaseFor(dateMs)].color;
+          // Actual logged period days get a solid fill; predicted phases a light tint.
+          const bg = logged
+            ? (FLOW_LEVELS.find((f) => f.key === logged)?.color ?? '#C2545A') + '66'
+            : phaseColor + '2E';
           const isToday = startOfDay(dateMs) === todayKey;
           return (
             <View key={i} style={styles.cell}>
               <View
                 style={[
                   styles.dayCircle,
-                  { backgroundColor: color + '33' },
+                  { backgroundColor: bg },
                   isToday && { borderWidth: 2, borderColor: c.green },
                 ]}>
                 <Text

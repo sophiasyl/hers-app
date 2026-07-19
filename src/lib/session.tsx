@@ -35,7 +35,7 @@ export function petEmoji(key: string | undefined | null): string {
 
 const ACCOUNTS_KEY = 'hers.accounts.v1';
 const SESSION_KEY = 'hers.session.v1';
-const PROFILE_KEY = 'hers.profile.v1';
+const PROFILES_KEY = 'hers.profiles.v1';
 
 // NOTE: local-only placeholder auth (passwords stored on-device). Phase 2 swaps
 // this for Supabase auth (hashing + server sessions).
@@ -68,7 +68,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [accounts, setAccounts] = useState<Accounts>({});
   const [email, setEmail] = useState<string | null>(null);
-  const [profile, setProfile] = useState<Profile>(EMPTY_PROFILE);
+  const [profiles, setProfiles] = useState<Record<string, Profile>>({});
 
   useEffect(() => {
     let active = true;
@@ -77,12 +77,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         const [[, a], [, s], [, p]] = await AsyncStorage.multiGet([
           ACCOUNTS_KEY,
           SESSION_KEY,
-          PROFILE_KEY,
+          PROFILES_KEY,
         ]);
         if (!active) return;
         if (a) setAccounts(JSON.parse(a));
         if (s) setEmail(JSON.parse(s).email ?? null);
-        if (p) setProfile({ ...EMPTY_PROFILE, ...JSON.parse(p) });
+        if (p) setProfiles(JSON.parse(p));
       } catch {
         // ignore corrupt store
       } finally {
@@ -94,6 +94,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // Current account's profile (per-account, so switching login shows its own data).
+  const profile: Profile = (email && profiles[email]) || EMPTY_PROFILE;
+
   const signUp = useCallback<SessionValue['signUp']>(
     async (name, em, password) => {
       const e = em.trim().toLowerCase();
@@ -102,18 +105,21 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       if (password.length < 6) return { ok: false, error: 'Password must be at least 6 characters.' };
       if (accounts[e]) return { ok: false, error: 'An account with this email already exists.' };
       const nextAccounts: Accounts = { ...accounts, [e]: { name: name.trim(), password } };
-      const nextProfile: Profile = { onboarded: false, name: name.trim(), pet: null };
+      const nextProfiles: Record<string, Profile> = {
+        ...profiles,
+        [e]: { onboarded: false, name: name.trim(), pet: null },
+      };
       setAccounts(nextAccounts);
+      setProfiles(nextProfiles);
       setEmail(e);
-      setProfile(nextProfile);
       await AsyncStorage.multiSet([
         [ACCOUNTS_KEY, JSON.stringify(nextAccounts)],
         [SESSION_KEY, JSON.stringify({ email: e })],
-        [PROFILE_KEY, JSON.stringify(nextProfile)],
+        [PROFILES_KEY, JSON.stringify(nextProfiles)],
       ]);
       return { ok: true };
     },
-    [accounts],
+    [accounts, profiles],
   );
 
   const logIn = useCallback<SessionValue['logIn']>(
@@ -136,11 +142,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const completeOnboarding = useCallback<SessionValue['completeOnboarding']>(
     ({ name, pet }) => {
-      const nextProfile: Profile = { onboarded: true, name: name.trim() || profile.name, pet };
-      setProfile(nextProfile);
-      AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile)).catch(() => {});
+      if (!email) return;
+      setProfiles((prev) => {
+        const cur = prev[email] || EMPTY_PROFILE;
+        const next = { ...prev, [email]: { onboarded: true, name: name.trim() || cur.name, pet } };
+        AsyncStorage.setItem(PROFILES_KEY, JSON.stringify(next)).catch(() => {});
+        return next;
+      });
     },
-    [profile.name],
+    [email],
   );
 
   const value = useMemo<SessionValue>(

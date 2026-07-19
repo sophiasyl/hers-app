@@ -9,13 +9,20 @@ import {
   type ReactNode,
 } from 'react';
 
-import { dayKey } from './format';
+import {
+  deriveCycle,
+  phaseForDate,
+  startOfDay,
+  type CycleConfig,
+  type CycleStatus,
+  type FlowLevel,
+  type Phase,
+} from './cycleMath';
 
-const STORAGE_KEY = 'hers.cycle.v1';
+export type { Phase, FlowLevel, CycleConfig } from './cycleMath';
+
 const DAY_MS = 86400000;
-
-export type Phase = 'menstrual' | 'follicular' | 'ovulatory' | 'luteal';
-export type FlowLevel = 'spotting' | 'light' | 'medium' | 'heavy';
+const keyFor = (userKey: string) => `hers.cycle.v1::${userKey}`;
 
 export interface Hormone {
   name: string;
@@ -155,84 +162,48 @@ export const FLOW_LEVELS: { key: FlowLevel; label: string; color: string }[] = [
   { key: 'heavy', label: 'Heavy', color: '#9B3B43' },
 ];
 
-export interface CycleConfig {
-  lastPeriodStart: number;
-  cycleLength: number;
-  periodLength: number;
-}
-
-export interface TodayCycle {
-  day: number;
-  phase: Phase;
+export interface Today extends CycleStatus {
   content: PhaseContent;
-  progress: number;
-  cycleLength: number;
-  daysUntilNextPeriod: number;
+  progress: number; // 0..1 for the ring
 }
 
-function startOfDay(ts: number): number {
+function dayKey(ts: number): string {
   const d = new Date(ts);
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-}
-
-function phaseForDay(day: number, cycleLength: number, periodLength: number): Phase {
-  const ovulation = cycleLength - 14;
-  if (day <= periodLength) return 'menstrual';
-  if (day >= ovulation - 1 && day <= ovulation + 1) return 'ovulatory';
-  if (day < ovulation - 1) return 'follicular';
-  return 'luteal';
-}
-
-export function computeCycle(config: CycleConfig, now: number): TodayCycle {
-  const elapsed = Math.floor((startOfDay(now) - startOfDay(config.lastPeriodStart)) / DAY_MS);
-  const mod = ((elapsed % config.cycleLength) + config.cycleLength) % config.cycleLength;
-  const day = mod + 1;
-  const phase = phaseForDay(day, config.cycleLength, config.periodLength);
-  return {
-    day,
-    phase,
-    content: PHASE_CONTENT[phase],
-    progress: day / config.cycleLength,
-    cycleLength: config.cycleLength,
-    daysUntilNextPeriod: config.cycleLength - day + 1,
-  };
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 }
 
 function defaultConfig(now: number): CycleConfig {
-  // Seed so a fresh install opens on Day 12 (follicular), matching the design.
-  return {
-    lastPeriodStart: startOfDay(now) - 11 * DAY_MS,
-    cycleLength: 28,
-    periodLength: 5,
-  };
+  return { lastPeriodStart: startOfDay(now), cycleLength: 28, periodLength: 5 };
 }
 
 interface CycleContextValue {
   config: CycleConfig;
   flowLogs: Record<string, FlowLevel>;
-  today: TodayCycle;
+  today: Today;
   ready: boolean;
   logFlow: (level: FlowLevel) => void;
   startPeriodToday: () => void;
-  setCycleLength: (n: number) => void;
   setup: (cfg: CycleConfig) => void;
+  phaseFor: (dateMs: number) => Phase;
 }
 
 const CycleContext = createContext<CycleContextValue | null>(null);
 
-export function CycleProvider({ children }: { children: ReactNode }) {
-  const now = Date.now();
-  const [config, setConfig] = useState<CycleConfig>(() => defaultConfig(now));
+export function CycleProvider({ userKey, children }: { userKey: string; children: ReactNode }) {
+  const [config, setConfig] = useState<CycleConfig>(() => defaultConfig(Date.now()));
   const [flowLogs, setFlowLogs] = useState<Record<string, FlowLevel>>({});
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
     let active = true;
-    AsyncStorage.getItem(STORAGE_KEY)
+    AsyncStorage.getItem(keyFor(userKey))
       .then((raw) => {
         if (!active || !raw) return;
         try {
-          const parsed = JSON.parse(raw) as { config?: CycleConfig; flowLogs?: Record<string, FlowLevel> };
+          const parsed = JSON.parse(raw) as {
+            config?: CycleConfig;
+            flowLogs?: Record<string, FlowLevel>;
+          };
           if (parsed.config) setConfig(parsed.config);
           if (parsed.flowLogs) setFlowLogs(parsed.flowLogs);
         } catch {
@@ -245,14 +216,17 @@ export function CycleProvider({ children }: { children: ReactNode }) {
     return () => {
       active = false;
     };
-  }, []);
+  }, [userKey]);
 
-  const persist = useCallback((nextConfig: CycleConfig, nextFlow: Record<string, FlowLevel>) => {
-    AsyncStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({ config: nextConfig, flowLogs: nextFlow }),
-    ).catch(() => {});
-  }, []);
+  const persist = useCallback(
+    (nextConfig: CycleConfig, nextFlow: Record<string, FlowLevel>) => {
+      AsyncStorage.setItem(
+        keyFor(userKey),
+        JSON.stringify({ config: nextConfig, flowLogs: nextFlow }),
+      ).catch(() => {});
+    },
+    [userKey],
+  );
 
   const logFlow = useCallback(
     (level: FlowLevel) => {
@@ -265,38 +239,45 @@ export function CycleProvider({ children }: { children: ReactNode }) {
     [config, persist],
   );
 
-  const startPeriodToday = useCallback(() => {
-    const nextConfig: CycleConfig = { ...config, lastPeriodStart: startOfDay(Date.now()) };
-    setConfig(nextConfig);
-    setFlowLogs((prev) => {
-      const next = { ...prev, [dayKey(Date.now())]: 'medium' as FlowLevel };
-      persist(nextConfig, next);
-      return next;
-    });
-  }, [config, persist]);
-
-  const setCycleLength = useCallback(
-    (n: number) => {
-      const nextConfig = { ...config, cycleLength: n };
-      setConfig(nextConfig);
-      persist(nextConfig, flowLogs);
-    },
-    [config, flowLogs, persist],
-  );
+  const startPeriodToday = useCallback(() => logFlow('medium'), [logFlow]);
 
   const setup = useCallback(
     (cfg: CycleConfig) => {
+      // Seed the onboarding period into the flow log (up to today) so predictions
+      // and history work from day one.
+      const startSod = startOfDay(cfg.lastPeriodStart);
+      const todaySod = startOfDay(Date.now());
+      const seeded: Record<string, FlowLevel> = {};
+      for (let i = 0; i < cfg.periodLength; i++) {
+        const d = startSod + i * DAY_MS;
+        if (d > todaySod) break;
+        seeded[dayKey(d)] = 'medium';
+      }
       setConfig(cfg);
-      persist(cfg, flowLogs);
+      setFlowLogs(seeded);
+      persist(cfg, seeded);
     },
-    [flowLogs, persist],
+    [persist],
   );
 
-  const today = useMemo(() => computeCycle(config, Date.now()), [config]);
+  const today = useMemo<Today>(() => {
+    const status = deriveCycle(flowLogs, config, Date.now());
+    return {
+      ...status,
+      content: PHASE_CONTENT[status.phase],
+      progress: Math.min(1, Math.max(0, status.day / status.cycleLength)),
+    };
+  }, [flowLogs, config]);
+
+  const phaseFor = useCallback(
+    (dateMs: number) =>
+      phaseForDate(dateMs, today.lastPeriodStart, today.cycleLength, today.periodLength),
+    [today.lastPeriodStart, today.cycleLength, today.periodLength],
+  );
 
   const value = useMemo(
-    () => ({ config, flowLogs, today, ready, logFlow, startPeriodToday, setCycleLength, setup }),
-    [config, flowLogs, today, ready, logFlow, startPeriodToday, setCycleLength, setup],
+    () => ({ config, flowLogs, today, ready, logFlow, startPeriodToday, setup, phaseFor }),
+    [config, flowLogs, today, ready, logFlow, startPeriodToday, setup, phaseFor],
   );
 
   return <CycleContext.Provider value={value}>{children}</CycleContext.Provider>;

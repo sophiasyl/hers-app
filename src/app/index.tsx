@@ -54,9 +54,13 @@ export default function TrackScreen() {
         <View style={styles.nextPeriod}>
           <Ionicons name="water" size={15} color="#C2545A" />
           <Text style={[styles.nextPeriodText, { color: c.textSecondary }]}>
-            {today.daysUntilNextPeriod === 1
-              ? 'Next period starts tomorrow'
-              : `Next period in ${today.daysUntilNextPeriod} days`}
+            {today.isLate
+              ? `Period ${Math.abs(today.daysUntilNextPeriod)} ${Math.abs(today.daysUntilNextPeriod) === 1 ? 'day' : 'days'} late`
+              : today.daysUntilNextPeriod === 0
+                ? 'Period expected today'
+                : today.daysUntilNextPeriod === 1
+                  ? 'Next period starts tomorrow'
+                  : `Next period in ${today.daysUntilNextPeriod} days`}
           </Text>
         </View>
 

@@ -11,7 +11,7 @@ import {
 
 import type { MoodKey } from './theme';
 
-const STORAGE_KEY = 'echo.entries.v1';
+const keyFor = (userKey: string) => `hers.entries.v1::${userKey}`;
 
 export type EntrySource = 'manual' | 'luna';
 
@@ -61,13 +61,13 @@ interface EntriesContextValue {
 
 const EntriesContext = createContext<EntriesContextValue | null>(null);
 
-export function EntriesProvider({ children }: { children: ReactNode }) {
+export function EntriesProvider({ userKey, children }: { userKey: string; children: ReactNode }) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
     let active = true;
-    AsyncStorage.getItem(STORAGE_KEY)
+    AsyncStorage.getItem(keyFor(userKey))
       .then((raw) => {
         if (!active || !raw) return;
         try {
@@ -83,7 +83,7 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
     return () => {
       active = false;
     };
-  }, []);
+  }, [userKey]);
 
   const addEntry = useCallback<EntriesContextValue['addEntry']>(
     ({ body, mood = null, source = 'manual', title, tags }) => {
@@ -100,20 +100,23 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
       };
       setEntries((prev) => {
         const next = [entry, ...prev];
-        AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => {});
+        AsyncStorage.setItem(keyFor(userKey), JSON.stringify(next)).catch(() => {});
         return next;
       });
     },
-    [],
+    [userKey],
   );
 
-  const deleteEntry = useCallback((id: string) => {
-    setEntries((prev) => {
-      const next = prev.filter((e) => e.id !== id);
-      AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => {});
-      return next;
-    });
-  }, []);
+  const deleteEntry = useCallback(
+    (id: string) => {
+      setEntries((prev) => {
+        const next = prev.filter((e) => e.id !== id);
+        AsyncStorage.setItem(keyFor(userKey), JSON.stringify(next)).catch(() => {});
+        return next;
+      });
+    },
+    [userKey],
+  );
 
   const value = useMemo(
     () => ({ entries, ready, addEntry, deleteEntry }),

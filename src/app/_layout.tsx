@@ -84,8 +84,15 @@ function Gate() {
   const { ready, email, profile } = useSession();
   if (!ready) return <View style={{ flex: 1, backgroundColor: c.bg }} />;
   if (!email) return <AuthScreen />;
-  if (!profile.onboarded) return <Onboarding />;
-  return <AppChrome />;
+  // Per-account data providers — keyed by email so switching accounts loads
+  // that account's own cycle + journal data (a fresh mount).
+  return (
+    <CycleProvider key={email} userKey={email}>
+      <EntriesProvider userKey={email}>
+        {profile.onboarded ? <AppChrome /> : <Onboarding />}
+      </EntriesProvider>
+    </CycleProvider>
+  );
 }
 
 export default function RootLayout() {
@@ -105,11 +112,7 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <SessionProvider>
         <SettingsProvider>
-          <CycleProvider>
-            <EntriesProvider>
-              <Gate />
-            </EntriesProvider>
-          </CycleProvider>
+          <Gate />
         </SettingsProvider>
       </SessionProvider>
     </SafeAreaProvider>
