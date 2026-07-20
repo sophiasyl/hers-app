@@ -1,0 +1,8 @@
+# Supabase project config (used by the Supabase CLI).
+project_id = "vhcmlbvmkrsigoswtvoo"
+
+# The Luna Edge Function. verify_jwt = true means only signed-in Hers users
+# (whose request carries a valid Supabase auth token) can call it, so the
+# Anthropic key behind it can't be abused anonymously.
+[functions.luna]
+verify_jwt = true

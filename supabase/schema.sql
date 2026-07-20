@@ -82,3 +82,50 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
+
+-- 5) Luna AI chat history (see luna_schema.sql for standalone install) ----------
+create table if not exists public.luna_chats (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null references auth.users on delete cascade,
+  title      text,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.luna_messages (
+  id         uuid primary key default gen_random_uuid(),
+  chat_id    uuid not null references public.luna_chats on delete cascade,
+  user_id    uuid not null references auth.users on delete cascade,
+  role       text not null check (role in ('user','assistant')),
+  content    text not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists luna_messages_user_created_idx
+  on public.luna_messages (user_id, created_at);
+create index if not exists luna_messages_chat_idx
+  on public.luna_messages (chat_id, created_at);
+
+alter table public.luna_chats    enable row level security;
+alter table public.luna_messages enable row level security;
+
+drop policy if exists "own luna chats" on public.luna_chats;
+create policy "own luna chats" on public.luna_chats
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "own luna messages" on public.luna_messages;
+create policy "own luna messages" on public.luna_messages
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- 6) Medication logs (what medicine was taken each day) ------------------------
+create table if not exists public.medication_logs (
+  user_id uuid not null references auth.users on delete cascade,
+  date    date not null,
+  meds    text[] not null default '{}',
+  primary key (user_id, date)
+);
+
+alter table public.medication_logs enable row level security;
+
+drop policy if exists "own medication" on public.medication_logs;
+create policy "own medication" on public.medication_logs
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);

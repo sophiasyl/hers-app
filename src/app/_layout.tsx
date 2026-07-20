@@ -11,6 +11,7 @@ import { Onboarding } from '@/components/Onboarding';
 import '@/lib/applyFonts';
 import { CycleProvider } from '@/lib/cycle';
 import { EntriesProvider } from '@/lib/entries';
+import { MedicationProvider } from '@/lib/medication';
 import { SessionProvider, useSession } from '@/lib/session';
 import { SettingsProvider, useSettings } from '@/lib/settings';
 import { WellnessProvider } from '@/lib/wellness';
@@ -91,7 +92,9 @@ function Gate() {
     <CycleProvider key={userId} userId={userId}>
       <EntriesProvider userId={userId}>
         <WellnessProvider userId={userId}>
-          {profile.onboarded ? <AppChrome /> : <Onboarding />}
+          <MedicationProvider userId={userId}>
+            {profile.onboarded ? <AppChrome /> : <Onboarding />}
+          </MedicationProvider>
         </WellnessProvider>
       </EntriesProvider>
     </CycleProvider>

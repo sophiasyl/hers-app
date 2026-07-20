@@ -173,3 +173,70 @@ export function deriveCycle(
     cyclesTracked,
   };
 }
+
+// ── Conception (pregnancy) likelihood for today ──────────────────────────────
+// A qualitative estimate mirroring how consumer apps present fertility: highest
+// on/just-before ovulation, tapering across the fertile window, low elsewhere.
+// This is an ESTIMATE from logged cycles — never present it as contraception.
+
+export type ConceptionLevel = 'very-low' | 'low' | 'medium' | 'high' | 'peak';
+
+export interface ConceptionChance {
+  level: ConceptionLevel;
+  index: number; // 0..4, for a segmented bar
+  label: string;
+  note: string;
+  uncertain: boolean; // true when the cycle is irregular/late so the estimate is shaky
+}
+
+const CONCEPTION_LABEL: Record<ConceptionLevel, string> = {
+  'very-low': 'Very low',
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  peak: 'Very high',
+};
+
+const CONCEPTION_INDEX: Record<ConceptionLevel, number> = {
+  'very-low': 0,
+  low: 1,
+  medium: 2,
+  high: 3,
+  peak: 4,
+};
+
+export function conceptionChance(status: CycleStatus): ConceptionChance {
+  const { day, ovulationDay, periodLength, isLate, regularity } = status;
+  const d = day - ovulationDay; // days relative to predicted ovulation
+
+  let level: ConceptionLevel;
+  if (day <= periodLength) {
+    level = 'very-low';
+  } else if (d === -1 || d === 0) {
+    level = 'peak';
+  } else if (d === -2 || d === 1) {
+    level = 'high';
+  } else if (d === -3) {
+    level = 'medium';
+  } else if (d === -4 || d === -5) {
+    level = 'low';
+  } else {
+    level = 'very-low';
+  }
+
+  const note: Record<ConceptionLevel, string> = {
+    peak: "You're in your fertile peak — pregnancy is most likely right now.",
+    high: "You're in your fertile window — pregnancy is quite possible around now.",
+    medium: 'Your fertile window is near — the chance is starting to rise.',
+    low: 'The chance is low today, but your fertile window is approaching.',
+    'very-low': "You're outside your estimated fertile window, so pregnancy is unlikely today.",
+  };
+
+  return {
+    level,
+    index: CONCEPTION_INDEX[level],
+    label: CONCEPTION_LABEL[level],
+    note: note[level],
+    uncertain: isLate || regularity === 'irregular' || regularity === 'unknown',
+  };
+}
