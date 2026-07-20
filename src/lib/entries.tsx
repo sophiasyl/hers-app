@@ -1,4 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   createContext,
   useCallback,
@@ -9,9 +8,8 @@ import {
   type ReactNode,
 } from 'react';
 
+import { supabase } from './supabase';
 import type { MoodKey } from './theme';
-
-const keyFor = (userKey: string) => `hers.entries.v1::${userKey}`;
 
 export type EntrySource = 'manual' | 'luna';
 
@@ -40,16 +38,34 @@ export function extractTags(text: string): string[] {
   return tags;
 }
 
-function makeId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-}
-
 export interface NewEntry {
   body: string;
   mood?: MoodKey | null;
   source?: EntrySource;
   title?: string;
   tags?: string[];
+}
+
+interface EntryRow {
+  id: string;
+  body: string;
+  mood: string | null;
+  tags: string[] | null;
+  created_at: string;
+  source: string;
+  title: string | null;
+}
+
+function rowToEntry(r: EntryRow): Entry {
+  return {
+    id: r.id,
+    body: r.body,
+    mood: (r.mood as MoodKey | null) ?? null,
+    tags: r.tags ?? [],
+    createdAt: Date.parse(r.created_at),
+    source: (r.source as EntrySource) ?? 'manual',
+    title: r.title ?? undefined,
+  };
 }
 
 interface EntriesContextValue {
@@ -61,62 +77,55 @@ interface EntriesContextValue {
 
 const EntriesContext = createContext<EntriesContextValue | null>(null);
 
-export function EntriesProvider({ userKey, children }: { userKey: string; children: ReactNode }) {
+export function EntriesProvider({ userId, children }: { userId: string; children: ReactNode }) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
     let active = true;
-    AsyncStorage.getItem(keyFor(userKey))
-      .then((raw) => {
-        if (!active || !raw) return;
-        try {
-          const parsed = JSON.parse(raw) as Entry[];
-          if (Array.isArray(parsed)) setEntries(parsed);
-        } catch {
-          // corrupt store — start fresh rather than crash
-        }
-      })
-      .finally(() => {
-        if (active) setReady(true);
+    supabase
+      .from('journal_entries')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .then(({ data }) => {
+        if (!active) return;
+        if (data) setEntries((data as EntryRow[]).map(rowToEntry));
+        setReady(true);
       });
     return () => {
       active = false;
     };
-  }, [userKey]);
+  }, [userId]);
 
   const addEntry = useCallback<EntriesContextValue['addEntry']>(
     ({ body, mood = null, source = 'manual', title, tags }) => {
       const trimmed = body.trim();
       if (!trimmed) return;
-      const entry: Entry = {
-        id: makeId(),
+      const insert = {
+        user_id: userId,
         body: trimmed,
         mood,
         tags: tags ?? extractTags(trimmed),
-        createdAt: Date.now(),
         source,
-        title,
+        title: title ?? null,
       };
-      setEntries((prev) => {
-        const next = [entry, ...prev];
-        AsyncStorage.setItem(keyFor(userKey), JSON.stringify(next)).catch(() => {});
-        return next;
-      });
+      supabase
+        .from('journal_entries')
+        .insert(insert)
+        .select()
+        .single()
+        .then(({ data }) => {
+          if (data) setEntries((prev) => [rowToEntry(data as EntryRow), ...prev]);
+        });
     },
-    [userKey],
+    [userId],
   );
 
-  const deleteEntry = useCallback(
-    (id: string) => {
-      setEntries((prev) => {
-        const next = prev.filter((e) => e.id !== id);
-        AsyncStorage.setItem(keyFor(userKey), JSON.stringify(next)).catch(() => {});
-        return next;
-      });
-    },
-    [userKey],
-  );
+  const deleteEntry = useCallback((id: string) => {
+    setEntries((prev) => prev.filter((e) => e.id !== id));
+    supabase.from('journal_entries').delete().eq('id', id).then(() => {});
+  }, []);
 
   const value = useMemo(
     () => ({ entries, ready, addEntry, deleteEntry }),

@@ -82,15 +82,15 @@ function AppChrome() {
 
 function Gate() {
   const c = useTheme();
-  const { ready, email, profile } = useSession();
+  const { ready, userId, profile } = useSession();
   if (!ready) return <View style={{ flex: 1, backgroundColor: c.bg }} />;
-  if (!email) return <AuthScreen />;
-  // Per-account data providers — keyed by email so switching accounts loads
-  // that account's own cycle + journal data (a fresh mount).
+  if (!userId) return <AuthScreen />;
+  // Per-account data providers — keyed by user id so switching accounts loads
+  // that account's own cloud data (a fresh mount).
   return (
-    <CycleProvider key={email} userKey={email}>
-      <EntriesProvider userKey={email}>
-        <WellnessProvider userKey={email}>
+    <CycleProvider key={userId} userId={userId}>
+      <EntriesProvider userId={userId}>
+        <WellnessProvider userId={userId}>
           {profile.onboarded ? <AppChrome /> : <Onboarding />}
         </WellnessProvider>
       </EntriesProvider>

@@ -1,4 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   createContext,
   useCallback,
@@ -9,9 +8,9 @@ import {
   type ReactNode,
 } from 'react';
 
+import { appKeyToDbDate, dbDateToAppKey } from './format';
+import { supabase } from './supabase';
 import type { MoodKey } from './theme';
-
-const keyFor = (userKey: string) => `hers.wellness.v1::${userKey}`;
 
 export const SYMPTOMS = [
   'Cramps',
@@ -35,6 +34,12 @@ export interface DailyLog {
 
 const EMPTY_DAY: DailyLog = { mood: null, symptoms: [] };
 
+interface WellnessRow {
+  date: string;
+  mood: string | null;
+  symptoms: string[] | null;
+}
+
 interface WellnessContextValue {
   logs: Record<string, DailyLog>;
   ready: boolean;
@@ -43,29 +48,34 @@ interface WellnessContextValue {
 
 const WellnessContext = createContext<WellnessContextValue | null>(null);
 
-export function WellnessProvider({ userKey, children }: { userKey: string; children: ReactNode }) {
+export function WellnessProvider({ userId, children }: { userId: string; children: ReactNode }) {
   const [logs, setLogs] = useState<Record<string, DailyLog>>({});
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
     let active = true;
-    AsyncStorage.getItem(keyFor(userKey))
-      .then((raw) => {
-        if (!active || !raw) return;
-        try {
-          const parsed = JSON.parse(raw) as Record<string, DailyLog>;
-          if (parsed && typeof parsed === 'object') setLogs(parsed);
-        } catch {
-          // ignore corrupt store
+    supabase
+      .from('wellness_logs')
+      .select('date,mood,symptoms')
+      .eq('user_id', userId)
+      .then(({ data }) => {
+        if (!active) return;
+        if (data) {
+          const map: Record<string, DailyLog> = {};
+          for (const r of data as WellnessRow[]) {
+            map[dbDateToAppKey(r.date)] = {
+              mood: (r.mood as MoodKey | null) ?? null,
+              symptoms: r.symptoms ?? [],
+            };
+          }
+          setLogs(map);
         }
-      })
-      .finally(() => {
-        if (active) setReady(true);
+        setReady(true);
       });
     return () => {
       active = false;
     };
-  }, [userKey]);
+  }, [userId]);
 
   const saveDay = useCallback<WellnessContextValue['saveDay']>(
     (dateKey, data) => {
@@ -75,12 +85,19 @@ export function WellnessProvider({ userKey, children }: { userKey: string; child
           mood: data.mood !== undefined ? data.mood : current.mood,
           symptoms: data.symptoms !== undefined ? data.symptoms : current.symptoms,
         };
-        const next = { ...prev, [dateKey]: merged };
-        AsyncStorage.setItem(keyFor(userKey), JSON.stringify(next)).catch(() => {});
-        return next;
+        supabase
+          .from('wellness_logs')
+          .upsert({
+            user_id: userId,
+            date: appKeyToDbDate(dateKey),
+            mood: merged.mood,
+            symptoms: merged.symptoms,
+          })
+          .then(() => {});
+        return { ...prev, [dateKey]: merged };
       });
     },
-    [userKey],
+    [userId],
   );
 
   const value = useMemo(() => ({ logs, ready, saveDay }), [logs, ready, saveDay]);

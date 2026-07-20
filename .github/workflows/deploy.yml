@@ -36,6 +36,9 @@ jobs:
       - name: Export web build
         run: npx expo export -p web
 
+      - name: SPA fallback for deep links
+        run: cp dist/index.html dist/404.html
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

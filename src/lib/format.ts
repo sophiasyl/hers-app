@@ -19,6 +19,28 @@ export function isToday(ts: number): boolean {
   return dayKey(ts) === dayKey(Date.now());
 }
 
+// Convert between the app's internal dayKey ("Y-M-D", M is 0-based) and the
+// Supabase `date` column format ("YYYY-MM-DD", M is 1-based, zero-padded).
+export function appKeyToDbDate(k: string): string {
+  const [y, m, d] = k.split('-').map(Number);
+  return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+export function dbDateToAppKey(s: string): string {
+  const [y, m, d] = s.split('-').map(Number);
+  return `${y}-${m - 1}-${d}`;
+}
+
+export function dbDateToMs(s: string): number {
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(y, m - 1, d).getTime();
+}
+
+export function msToDbDate(ts: number): string {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export function dayLabel(ts: number): string {
   const d = new Date(ts);
   const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();

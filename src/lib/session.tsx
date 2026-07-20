@@ -1,4 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   createContext,
   useCallback,
@@ -8,6 +7,8 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+
+import { supabase } from './supabase';
 
 export interface Pet {
   key: string;
@@ -33,18 +34,6 @@ export function petEmoji(key: string | undefined | null): string {
   return PETS.find((p) => p.key === key)?.emoji ?? '🌱';
 }
 
-const ACCOUNTS_KEY = 'hers.accounts.v1';
-const SESSION_KEY = 'hers.session.v1';
-const PROFILES_KEY = 'hers.profiles.v1';
-
-// NOTE: local-only placeholder auth (passwords stored on-device). Phase 2 swaps
-// this for Supabase auth (hashing + server sessions).
-interface Account {
-  name: string;
-  password: string;
-}
-type Accounts = Record<string, Account>;
-
 const EMPTY_PROFILE: Profile = { onboarded: false, name: '', pet: null };
 
 interface AuthResult {
@@ -55,6 +44,7 @@ interface AuthResult {
 interface SessionValue {
   ready: boolean;
   email: string | null;
+  userId: string | null;
   profile: Profile;
   signUp: (name: string, email: string, password: string) => Promise<AuthResult>;
   logIn: (email: string, password: string) => Promise<AuthResult>;
@@ -64,98 +54,107 @@ interface SessionValue {
 
 const SessionContext = createContext<SessionValue | null>(null);
 
+interface ProfileRow {
+  name: string | null;
+  pet_key: string | null;
+  pet_name: string | null;
+  onboarded: boolean | null;
+}
+
+function toProfile(row: ProfileRow | null): Profile {
+  if (!row) return EMPTY_PROFILE;
+  return {
+    onboarded: !!row.onboarded,
+    name: row.name ?? '',
+    pet: row.pet_key ? { key: row.pet_key, name: row.pet_name ?? '' } : null,
+  };
+}
+
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
-  const [accounts, setAccounts] = useState<Accounts>({});
+  const [userId, setUserId] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
-  const [profiles, setProfiles] = useState<Record<string, Profile>>({});
+  const [profile, setProfile] = useState<Profile>(EMPTY_PROFILE);
+
+  const loadProfile = useCallback(async (uid: string) => {
+    const { data } = await supabase
+      .from('profiles')
+      .select('name,pet_key,pet_name,onboarded')
+      .eq('id', uid)
+      .maybeSingle();
+    setProfile(toProfile(data as ProfileRow | null));
+  }, []);
 
   useEffect(() => {
     let active = true;
-    (async () => {
-      try {
-        const [[, a], [, s], [, p]] = await AsyncStorage.multiGet([
-          ACCOUNTS_KEY,
-          SESSION_KEY,
-          PROFILES_KEY,
-        ]);
+    supabase.auth
+      .getSession()
+      .then(async ({ data }) => {
         if (!active) return;
-        if (a) setAccounts(JSON.parse(a));
-        if (s) setEmail(JSON.parse(s).email ?? null);
-        if (p) setProfiles(JSON.parse(p));
-      } catch {
-        // ignore corrupt store
-      } finally {
+        const u = data.session?.user ?? null;
+        setUserId(u?.id ?? null);
+        setEmail(u?.email ?? null);
+        if (u) await loadProfile(u.id);
+      })
+      .finally(() => {
         if (active) setReady(true);
-      }
-    })();
+      });
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      const u = session?.user ?? null;
+      setUserId(u?.id ?? null);
+      setEmail(u?.email ?? null);
+      if (u) loadProfile(u.id);
+      else setProfile(EMPTY_PROFILE);
+    });
+
     return () => {
       active = false;
+      sub.subscription.unsubscribe();
     };
+  }, [loadProfile]);
+
+  const signUp = useCallback<SessionValue['signUp']>(async (name, em, password) => {
+    const e = em.trim().toLowerCase();
+    if (!name.trim()) return { ok: false, error: 'Please enter your name.' };
+    const { data, error } = await supabase.auth.signUp({ email: e, password });
+    if (error) return { ok: false, error: error.message };
+    if (!data.session) return { ok: false, error: 'Check your email to confirm, then log in.' };
+    await supabase.from('profiles').update({ name: name.trim() }).eq('id', data.user!.id);
+    setProfile((p) => ({ ...p, name: name.trim() }));
+    return { ok: true };
   }, []);
 
-  // Current account's profile (per-account, so switching login shows its own data).
-  const profile: Profile = (email && profiles[email]) || EMPTY_PROFILE;
-
-  const signUp = useCallback<SessionValue['signUp']>(
-    async (name, em, password) => {
-      const e = em.trim().toLowerCase();
-      if (!name.trim()) return { ok: false, error: 'Please enter your name.' };
-      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return { ok: false, error: 'Enter a valid email.' };
-      if (password.length < 6) return { ok: false, error: 'Password must be at least 6 characters.' };
-      if (accounts[e]) return { ok: false, error: 'An account with this email already exists.' };
-      const nextAccounts: Accounts = { ...accounts, [e]: { name: name.trim(), password } };
-      const nextProfiles: Record<string, Profile> = {
-        ...profiles,
-        [e]: { onboarded: false, name: name.trim(), pet: null },
-      };
-      setAccounts(nextAccounts);
-      setProfiles(nextProfiles);
-      setEmail(e);
-      await AsyncStorage.multiSet([
-        [ACCOUNTS_KEY, JSON.stringify(nextAccounts)],
-        [SESSION_KEY, JSON.stringify({ email: e })],
-        [PROFILES_KEY, JSON.stringify(nextProfiles)],
-      ]);
-      return { ok: true };
-    },
-    [accounts, profiles],
-  );
-
-  const logIn = useCallback<SessionValue['logIn']>(
-    async (em, password) => {
-      const e = em.trim().toLowerCase();
-      const acc = accounts[e];
-      if (!acc) return { ok: false, error: 'No account found for this email.' };
-      if (acc.password !== password) return { ok: false, error: 'Incorrect password.' };
-      setEmail(e);
-      await AsyncStorage.setItem(SESSION_KEY, JSON.stringify({ email: e }));
-      return { ok: true };
-    },
-    [accounts],
-  );
+  const logIn = useCallback<SessionValue['logIn']>(async (em, password) => {
+    const { error } = await supabase.auth.signInWithPassword({
+      email: em.trim().toLowerCase(),
+      password,
+    });
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  }, []);
 
   const logOut = useCallback(() => {
-    setEmail(null);
-    AsyncStorage.removeItem(SESSION_KEY).catch(() => {});
+    supabase.auth.signOut().catch(() => {});
   }, []);
 
   const completeOnboarding = useCallback<SessionValue['completeOnboarding']>(
     ({ name, pet }) => {
-      if (!email) return;
-      setProfiles((prev) => {
-        const cur = prev[email] || EMPTY_PROFILE;
-        const next = { ...prev, [email]: { onboarded: true, name: name.trim() || cur.name, pet } };
-        AsyncStorage.setItem(PROFILES_KEY, JSON.stringify(next)).catch(() => {});
-        return next;
-      });
+      if (!userId) return;
+      const trimmed = name.trim();
+      setProfile((p) => ({ onboarded: true, name: trimmed || p.name, pet }));
+      supabase
+        .from('profiles')
+        .update({ onboarded: true, name: trimmed || null, pet_key: pet.key, pet_name: pet.name })
+        .eq('id', userId)
+        .then(() => {});
     },
-    [email],
+    [userId],
   );
 
   const value = useMemo<SessionValue>(
-    () => ({ ready, email, profile, signUp, logIn, logOut, completeOnboarding }),
-    [ready, email, profile, signUp, logIn, logOut, completeOnboarding],
+    () => ({ ready, email, userId, profile, signUp, logIn, logOut, completeOnboarding }),
+    [ready, email, userId, profile, signUp, logIn, logOut, completeOnboarding],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

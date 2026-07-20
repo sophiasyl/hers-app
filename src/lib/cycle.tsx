@@ -1,4 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   createContext,
   useCallback,
@@ -18,11 +17,12 @@ import {
   type FlowLevel,
   type Phase,
 } from './cycleMath';
+import { appKeyToDbDate, dbDateToAppKey, dbDateToMs, msToDbDate } from './format';
+import { supabase } from './supabase';
 
 export type { Phase, FlowLevel, CycleConfig } from './cycleMath';
 
 const DAY_MS = 86400000;
-const keyFor = (userKey: string) => `hers.cycle.v1::${userKey}`;
 
 export interface Hormone {
   name: string;
@@ -189,75 +189,87 @@ interface CycleContextValue {
 
 const CycleContext = createContext<CycleContextValue | null>(null);
 
-export function CycleProvider({ userKey, children }: { userKey: string; children: ReactNode }) {
+export function CycleProvider({ userId, children }: { userId: string; children: ReactNode }) {
   const [config, setConfig] = useState<CycleConfig>(() => defaultConfig(Date.now()));
   const [flowLogs, setFlowLogs] = useState<Record<string, FlowLevel>>({});
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
     let active = true;
-    AsyncStorage.getItem(keyFor(userKey))
-      .then((raw) => {
-        if (!active || !raw) return;
-        try {
-          const parsed = JSON.parse(raw) as {
-            config?: CycleConfig;
-            flowLogs?: Record<string, FlowLevel>;
-          };
-          if (parsed.config) setConfig(parsed.config);
-          if (parsed.flowLogs) setFlowLogs(parsed.flowLogs);
-        } catch {
-          // ignore corrupt store
-        }
-      })
-      .finally(() => {
-        if (active) setReady(true);
-      });
+    (async () => {
+      const [{ data: prof }, { data: flows }] = await Promise.all([
+        supabase
+          .from('profiles')
+          .select('cycle_length,period_length,last_period_start')
+          .eq('id', userId)
+          .maybeSingle(),
+        supabase.from('flow_logs').select('date,level').eq('user_id', userId),
+      ]);
+      if (!active) return;
+      if (prof) {
+        setConfig({
+          cycleLength: prof.cycle_length ?? 28,
+          periodLength: prof.period_length ?? 5,
+          lastPeriodStart: prof.last_period_start
+            ? dbDateToMs(prof.last_period_start)
+            : startOfDay(Date.now()),
+        });
+      }
+      if (flows) {
+        const map: Record<string, FlowLevel> = {};
+        for (const r of flows) map[dbDateToAppKey(r.date)] = r.level as FlowLevel;
+        setFlowLogs(map);
+      }
+      setReady(true);
+    })();
     return () => {
       active = false;
     };
-  }, [userKey]);
-
-  const persist = useCallback(
-    (nextConfig: CycleConfig, nextFlow: Record<string, FlowLevel>) => {
-      AsyncStorage.setItem(
-        keyFor(userKey),
-        JSON.stringify({ config: nextConfig, flowLogs: nextFlow }),
-      ).catch(() => {});
-    },
-    [userKey],
-  );
+  }, [userId]);
 
   const logFlow = useCallback(
     (level: FlowLevel) => {
-      setFlowLogs((prev) => {
-        const next = { ...prev, [dayKey(Date.now())]: level };
-        persist(config, next);
-        return next;
-      });
+      const k = dayKey(Date.now());
+      setFlowLogs((prev) => ({ ...prev, [k]: level }));
+      supabase
+        .from('flow_logs')
+        .upsert({ user_id: userId, date: appKeyToDbDate(k), level })
+        .then(() => {});
     },
-    [config, persist],
+    [userId],
   );
 
   const startPeriodToday = useCallback(() => logFlow('medium'), [logFlow]);
 
   const setup = useCallback(
     (cfg: CycleConfig) => {
-      // Seed the onboarding period into the flow log (up to today) so predictions
+      // Seed the onboarding period into flow logs (up to today) so predictions
       // and history work from day one.
       const startSod = startOfDay(cfg.lastPeriodStart);
       const todaySod = startOfDay(Date.now());
       const seeded: Record<string, FlowLevel> = {};
+      const rows: { user_id: string; date: string; level: FlowLevel }[] = [];
       for (let i = 0; i < cfg.periodLength; i++) {
         const d = startSod + i * DAY_MS;
         if (d > todaySod) break;
-        seeded[dayKey(d)] = 'medium';
+        const k = dayKey(d);
+        seeded[k] = 'medium';
+        rows.push({ user_id: userId, date: appKeyToDbDate(k), level: 'medium' });
       }
       setConfig(cfg);
       setFlowLogs(seeded);
-      persist(cfg, seeded);
+      supabase
+        .from('profiles')
+        .update({
+          cycle_length: cfg.cycleLength,
+          period_length: cfg.periodLength,
+          last_period_start: msToDbDate(cfg.lastPeriodStart),
+        })
+        .eq('id', userId)
+        .then(() => {});
+      if (rows.length) supabase.from('flow_logs').upsert(rows).then(() => {});
     },
-    [persist],
+    [userId],
   );
 
   const today = useMemo<Today>(() => {
