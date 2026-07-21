@@ -14,7 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Card, ScreenHeader, SectionTitle } from '@/components/ui';
-import { DAILY_LESSON } from '@/lib/content';
+import { LESSONS, lessonIndexForTime } from '@/lib/content';
 import { useCycle } from '@/lib/cycle';
 import { useEntries, type Entry } from '@/lib/entries';
 import { dayKey } from '@/lib/format';
@@ -64,6 +64,12 @@ export default function LearnScreen() {
   const [error, setError] = useState<string | null>(null);
   const [aiTitle, setAiTitle] = useState('');
   const [aiBody, setAiBody] = useState('');
+
+  // Daily Lesson rotates through the library — a different one every few hours.
+  const [lessonIdx, setLessonIdx] = useState(() => lessonIndexForTime(Date.now()));
+  const [lessonReader, setLessonReader] = useState(false);
+  const lesson = LESSONS[lessonIdx] ?? LESSONS[0];
+  const nextLesson = () => setLessonIdx((i) => (i + 1) % LESSONS.length);
 
   const { level, streak, progress } = useMemo(() => {
     const lvl = Math.floor(entries.length / 3) + 1;
@@ -205,14 +211,27 @@ export default function LearnScreen() {
           })
         )}
 
-        <SectionTitle style={styles.topGap}>Daily Lesson</SectionTitle>
-        <View style={styles.lessonCard}>
-          <Image source={{ uri: DAILY_LESSON.image }} style={styles.lessonImage} contentFit="cover" transition={200} />
-          <View style={styles.lessonOverlay}>
-            <Text style={styles.lessonTitle}>{DAILY_LESSON.title}</Text>
-            <Text style={styles.lessonSub}>{DAILY_LESSON.subtitle}</Text>
-          </View>
+        <View style={[styles.sectionRow, styles.topGap]}>
+          <SectionTitle style={styles.noMargin}>Daily Lesson</SectionTitle>
+          <Pressable onPress={nextLesson} style={styles.nextBtn} accessibilityLabel="Next lesson">
+            <Ionicons name="refresh" size={14} color={c.green} />
+            <Text style={[styles.nextText, { color: c.green }]}>Next</Text>
+          </Pressable>
         </View>
+        <Pressable
+          onPress={() => setLessonReader(true)}
+          style={[styles.lessonCard, { backgroundColor: lesson.accent }]}
+          accessibilityRole="button"
+          accessibilityLabel={`Read lesson: ${lesson.title}`}>
+          {lesson.image ? (
+            <Image source={{ uri: lesson.image }} style={styles.lessonImage} contentFit="cover" transition={200} />
+          ) : null}
+          <View style={styles.lessonOverlay}>
+            <Text style={styles.lessonTitle}>{lesson.title}</Text>
+            <Text style={styles.lessonSub}>{lesson.subtitle}</Text>
+            <Text style={styles.lessonHint}>Tap to read →</Text>
+          </View>
+        </Pressable>
       </ScrollView>
 
       <Modal visible={composer} transparent animationType="slide" onRequestClose={() => setComposer(false)}>
@@ -311,6 +330,25 @@ export default function LearnScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      <Modal visible={lessonReader} transparent animationType="slide" onRequestClose={() => setLessonReader(false)}>
+        <Pressable style={styles.backdrop} onPress={() => setLessonReader(false)}>
+          <Pressable style={[styles.sheet, { backgroundColor: c.surface }]} onPress={() => {}}>
+            <View style={[styles.readerBadge, { backgroundColor: lesson.accent }]}>
+              <Text style={styles.readerBadgeText}>LESSON</Text>
+            </View>
+            <Text style={[styles.readerTitle, { color: c.text }]}>{lesson.title}</Text>
+            <Text style={[styles.readerSub, { color: c.textTertiary }]}>{lesson.subtitle}</Text>
+            <Text style={[styles.readerBody, { color: c.textSecondary }]}>{lesson.body}</Text>
+            <Pressable onPress={nextLesson} style={[styles.saveBtn, { backgroundColor: c.green }]}>
+              <Text style={[styles.saveText, { color: c.accentText }]}>Next lesson</Text>
+            </Pressable>
+            <Pressable onPress={() => setLessonReader(false)} style={styles.linkBtn}>
+              <Text style={[styles.linkText, { color: c.textTertiary }]}>Close</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -362,6 +400,14 @@ const styles = StyleSheet.create({
   },
   lessonTitle: { fontSize: 18, fontFamily: fonts.serif, color: '#FFFFFF' },
   lessonSub: { fontSize: 13, color: '#F0EFE6', marginTop: 2 },
+  lessonHint: { fontSize: 12, color: '#F0EFE6', opacity: 0.85, marginTop: spacing.sm, fontWeight: '600' },
+  nextBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  nextText: { fontSize: 13, fontWeight: '500' },
+  readerBadge: { alignSelf: 'flex-start', borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4 },
+  readerBadgeText: { fontSize: 10, letterSpacing: 1, fontWeight: '700', color: '#FFFFFF' },
+  readerTitle: { fontSize: 22, fontFamily: fonts.serif, marginTop: spacing.sm },
+  readerSub: { fontSize: 13, marginTop: 2 },
+  readerBody: { fontSize: 15, lineHeight: 23, marginTop: spacing.sm },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' },
   sheet: { borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, padding: spacing.xl, gap: spacing.sm },
   sheetTitle: { fontSize: 20, fontFamily: fonts.serif, marginBottom: spacing.xs },

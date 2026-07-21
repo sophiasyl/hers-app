@@ -148,9 +148,77 @@ export const INSIGHTS = {
   ] as FeelBetter[],
 };
 
-export const DAILY_LESSON = {
-  title: 'Eat with your cycle',
-  subtitle: 'Foods that support your follicular phase',
-  image:
-    'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=900&q=80&auto=format&fit=crop',
-};
+export interface Lesson {
+  id: string;
+  title: string;
+  subtitle: string;
+  body: string;
+  accent: string;
+  image?: string;
+}
+
+export const LESSONS: Lesson[] = [
+  {
+    id: 'l1',
+    title: 'Eat with your cycle',
+    subtitle: 'Fuel for your follicular phase',
+    body: 'Rising estrogen makes your body better at using carbs for energy — a great week for whole grains, fresh greens and a harder workout.',
+    accent: '#33502F',
+    image: 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=900&q=80&auto=format&fit=crop',
+  },
+  {
+    id: 'l2',
+    title: 'Rest is productive',
+    subtitle: 'Why your menstrual phase asks for slowness',
+    body: 'With hormones at their lowest, your body is doing real recovery work. Gentle movement, warmth and extra sleep aren’t lazy — they’re exactly what this phase needs.',
+    accent: '#B05A3C',
+  },
+  {
+    id: 'l3',
+    title: 'The estrogen glow',
+    subtitle: 'Your skin at its most resilient',
+    body: 'Estrogen helps your skin hold moisture and build collagen, so your follicular week is when it bounces back best. Hydrate and enjoy it.',
+    accent: '#9B4A6B',
+  },
+  {
+    id: 'l4',
+    title: 'Peak power',
+    subtitle: 'Making the most of ovulation',
+    body: 'Estrogen and testosterone peak together — energy, confidence and libido are highest. A natural window for big conversations, workouts and connection.',
+    accent: '#A99A6B',
+  },
+  {
+    id: 'l5',
+    title: 'Luteal cravings, explained',
+    subtitle: 'Why you want carbs before your period',
+    body: 'As progesterone rises and serotonin dips, your body reaches for quick energy. Complex carbs, magnesium and protein steady the cravings better than sugar will.',
+    accent: '#5E5286',
+  },
+  {
+    id: 'l6',
+    title: 'Move with your phases',
+    subtitle: 'Cycle-synced exercise',
+    body: 'Save high-intensity training for your follicular and ovulatory weeks when energy is high; lean into walks, yoga and stretching through your luteal and menstrual phases.',
+    accent: '#2E6066',
+  },
+  {
+    id: 'l7',
+    title: 'Protect your luteal sleep',
+    subtitle: 'Resting through PMS',
+    body: 'Sleep often fragments late-cycle. A cool, dark room, a little magnesium and no screens after 9pm help you fall — and stay — asleep.',
+    accent: '#3F6F8F',
+  },
+  {
+    id: 'l8',
+    title: 'Seed cycling 101',
+    subtitle: 'Gentle, food-based hormone support',
+    body: 'Some people eat flax and pumpkin seeds in the first half of their cycle, then sunflower and sesame in the second, to support the natural hormone shift. Simple and low-risk.',
+    accent: '#7C6F8F',
+  },
+];
+
+// Rotates through the lessons over the day — a different one every few hours.
+const LESSON_ROTATE_MS = 3 * 60 * 60 * 1000;
+export function lessonIndexForTime(ts: number): number {
+  return Math.floor(ts / LESSON_ROTATE_MS) % LESSONS.length;
+}
