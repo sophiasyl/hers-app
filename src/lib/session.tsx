@@ -43,6 +43,8 @@ interface AuthResult {
 
 interface SessionValue {
   ready: boolean;
+  /** True once the signed-in user's profile has actually been loaded. */
+  profileReady: boolean;
   email: string | null;
   userId: string | null;
   profile: Profile;
@@ -75,6 +77,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [userId, setUserId] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
   const [profile, setProfile] = useState<Profile>(EMPTY_PROFILE);
+  // Which user id the loaded `profile` belongs to. Until this matches the
+  // signed-in user, the profile hasn't loaded yet — so the app must wait
+  // rather than assume "not onboarded" (which flashed the onboarding screen
+  // on login).
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
 
   const loadProfile = useCallback(async (uid: string) => {
     const { data } = await supabase
@@ -83,6 +90,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       .eq('id', uid)
       .maybeSingle();
     setProfile(toProfile(data as ProfileRow | null));
+    setLoadedFor(uid);
   }, []);
 
   useEffect(() => {
@@ -105,7 +113,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setUserId(u?.id ?? null);
       setEmail(u?.email ?? null);
       if (u) loadProfile(u.id);
-      else setProfile(EMPTY_PROFILE);
+      else {
+        setProfile(EMPTY_PROFILE);
+        setLoadedFor(null);
+      }
     });
 
     return () => {
@@ -152,9 +163,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [userId],
   );
 
+  const profileReady = userId != null && loadedFor === userId;
+
   const value = useMemo<SessionValue>(
-    () => ({ ready, email, userId, profile, signUp, logIn, logOut, completeOnboarding }),
-    [ready, email, userId, profile, signUp, logIn, logOut, completeOnboarding],
+    () => ({ ready, profileReady, email, userId, profile, signUp, logIn, logOut, completeOnboarding }),
+    [ready, profileReady, email, userId, profile, signUp, logIn, logOut, completeOnboarding],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

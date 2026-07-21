@@ -83,9 +83,12 @@ function AppChrome() {
 
 function Gate() {
   const c = useTheme();
-  const { ready, userId, profile } = useSession();
+  const { ready, userId, profile, profileReady } = useSession();
   if (!ready) return <View style={{ flex: 1, backgroundColor: c.bg }} />;
   if (!userId) return <AuthScreen />;
+  // Profile still loading for this user — show the splash, not onboarding, so
+  // logging back in doesn't briefly re-prompt for name/pet.
+  if (!profileReady) return <View style={{ flex: 1, backgroundColor: c.bg }} />;
   // Per-account data providers — keyed by user id so switching accounts loads
   // that account's own cloud data (a fresh mount).
   return (
