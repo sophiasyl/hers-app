@@ -36,6 +36,13 @@ jobs:
       - name: Export web build
         run: npx expo export -p web
 
+      # SPA mode ignores app/+html.tsx, so add the iOS Add-to-Home-Screen
+      # (PWA) meta tags to the built HTML shell here.
+      - name: Add iOS home-screen (PWA) meta tags
+        run: node scripts/inject-pwa.mjs
+        env:
+          PWA_BASE_URL: /${{ github.event.repository.name }}
+
       - name: SPA fallback for deep links
         run: cp dist/index.html dist/404.html
 
