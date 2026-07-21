@@ -1,19 +1,17 @@
-// Luna — Claude-backed chat companion (Supabase Edge Function, Deno runtime).
+// Luna — Gemini-backed chat companion (Supabase Edge Function, Deno runtime).
 //
-// The Anthropic API key lives here as a Supabase secret (ANTHROPIC_API_KEY) and
-// NEVER reaches the app bundle. The app calls this function with the current
-// chat's messages + a little context + condensed memory from past chats; the
-// function asks Claude and returns Luna's reply.
+// The Google Gemini API key lives here as a Supabase secret (GEMINI_API_KEY)
+// and NEVER reaches the app bundle. The app calls this function with the
+// current chat's messages + a little context + condensed memory from past
+// chats; the function asks Gemini and returns Luna's reply.
 //
 // Deploy:  supabase functions deploy luna
-// Secret:  supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
-//          (optionally)  supabase secrets set LUNA_MODEL=claude-sonnet-5
-import Anthropic from 'npm:@anthropic-ai/sdk';
+// Secret:  GEMINI_API_KEY  (set in Supabase dashboard → Edge Functions → secrets)
+//          optionally LUNA_MODEL (default gemini-2.5-flash)
 
-// Fast, low-cost model chosen for Luna's short, warm chat replies. Override
-// without a redeploy via the LUNA_MODEL secret (e.g. claude-sonnet-5 or
-// claude-opus-4-8 for more depth).
-const MODEL = Deno.env.get('LUNA_MODEL') ?? 'claude-haiku-4-5';
+// gemini-flash-lite-latest: fast, low-cost, works on the free tier, and the
+// "-latest" alias won't get deprecated out from under us. Override via LUNA_MODEL.
+const MODEL = Deno.env.get('LUNA_MODEL') ?? 'gemini-flash-lite-latest';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -84,27 +82,45 @@ Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {
-    const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
+    const apiKey = Deno.env.get('GEMINI_API_KEY');
     if (!apiKey) return json({ error: 'Luna is not configured yet (missing API key).' }, 500);
 
     const body = (await req.json()) as LunaRequest;
     const messages = (body.messages ?? []).filter((m) => m && typeof m.content === 'string' && m.content.trim());
     if (!messages.length) return json({ error: 'No messages provided.' }, 400);
 
-    const anthropic = new Anthropic({ apiKey });
-    const response = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 1024,
-      system: buildSystem(body.context, body.priorContext),
-      messages: messages.map((m) => ({
-        role: m.role === 'assistant' ? 'assistant' : 'user',
-        content: m.content,
-      })),
-    });
+    // Gemini uses roles "user" and "model" (assistant → model).
+    const contents = messages.map((m) => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content }],
+    }));
 
-    const reply = response.content
-      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-      .map((b) => b.text)
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: buildSystem(body.context, body.priorContext) }] },
+          contents,
+          generationConfig: { maxOutputTokens: 1024, temperature: 0.8 },
+        }),
+      },
+    );
+
+    if (!res.ok) {
+      const detail = await res.text();
+      console.error('gemini error', res.status, detail);
+      const msg =
+        res.status === 400 || res.status === 401 || res.status === 403
+          ? 'Luna\'s API key looks invalid or expired. Please set a valid Gemini key.'
+          : 'Luna had trouble responding. Please try again in a moment.';
+      return json({ error: msg }, 502);
+    }
+
+    const data = await res.json();
+    const reply = ((data?.candidates?.[0]?.content?.parts ?? []) as { text?: string }[])
+      .map((p) => p?.text ?? '')
       .join('')
       .trim();
 
