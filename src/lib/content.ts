@@ -3,6 +3,13 @@
  * are replaced by Supabase-backed feeds + a content service.
  */
 
+export interface PostComment {
+  id: string;
+  author: string;
+  initial: string;
+  body: string;
+}
+
 export interface CommunityPost {
   id: string;
   author: string;
@@ -13,6 +20,7 @@ export interface CommunityPost {
   body: string;
   hugs: number;
   tips: number;
+  comments: PostComment[];
 }
 
 export const COMMUNITY_POSTS: CommunityPost[] = [
@@ -26,6 +34,10 @@ export const COMMUNITY_POSTS: CommunityPost[] = [
     body: "Finally realized that my mid-cycle anxiety isn't “random.” It's the estrogen spike! Nature walks and switching to decaf helped me so much today.",
     hugs: 42,
     tips: 12,
+    comments: [
+      { id: 'p1c1', author: 'Maya_Flow', initial: 'M', body: 'Yes! Decaf changed everything for me too 💚' },
+      { id: 'p1c2', author: 'Anonymous', initial: 'A', body: 'Saving this — the estrogen thing finally makes sense.' },
+    ],
   },
   {
     id: 'p2',
@@ -37,6 +49,10 @@ export const COMMUNITY_POSTS: CommunityPost[] = [
     body: "If you're feeling on edge, try magnesium glycinate tonight. It stabilized my jitters instantly. We got this!",
     hugs: 28,
     tips: 5,
+    comments: [
+      { id: 'p2c1', author: 'Anonymous', initial: 'A', body: 'Trying this tonight, thank you 🙏' },
+      { id: 'p2c2', author: 'Rae', initial: 'R', body: 'Glycinate specifically — the citrate kind upsets my stomach.' },
+    ],
   },
   {
     id: 'p3',
@@ -48,6 +64,39 @@ export const COMMUNITY_POSTS: CommunityPost[] = [
     body: 'Tracked for three months and finally moved my big meetings to my follicular week. Game changer for my confidence.',
     hugs: 67,
     tips: 9,
+    comments: [
+      { id: 'p3c1', author: 'Priya_S', initial: 'P', body: 'So smart. Going to plan my week around my phases too.' },
+      { id: 'p3c2', author: 'Anonymous', initial: 'A', body: 'Proud of you! Three months of tracking is real dedication.' },
+    ],
+  },
+  {
+    id: 'p4',
+    author: 'Anonymous',
+    initial: 'A',
+    anonymous: true,
+    phase: 'Menstrual',
+    badge: 'DAY 2',
+    body: 'Cramps are brutal today. A heating pad and staying off my feet is the only thing helping. Sending strength to anyone else in their first days 🩸',
+    hugs: 51,
+    tips: 14,
+    comments: [
+      { id: 'p4c1', author: 'Nina', initial: 'N', body: 'Heating pad + ibuprofen before it peaks is my combo. Feel better 💛' },
+      { id: 'p4c2', author: 'Anonymous', initial: 'A', body: 'You’re not alone, day 2 is the worst. Rest guilt-free.' },
+    ],
+  },
+  {
+    id: 'p5',
+    author: 'Jess_M',
+    initial: 'J',
+    anonymous: false,
+    phase: 'Luteal',
+    badge: 'REMEDY SHARED',
+    body: 'PMS insomnia was wrecking me until I started magnesium + no screens after 9pm. Falling asleep so much easier this week.',
+    hugs: 33,
+    tips: 8,
+    comments: [
+      { id: 'p5c1', author: 'Anonymous', initial: 'A', body: 'Screens were my problem too. Blue light is no joke late cycle.' },
+    ],
   },
 ];
 
