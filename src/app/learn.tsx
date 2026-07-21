@@ -1,7 +1,16 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Card, ScreenHeader, SectionTitle } from '@/components/ui';
@@ -9,8 +18,9 @@ import { DAILY_LESSON } from '@/lib/content';
 import { useCycle } from '@/lib/cycle';
 import { useEntries, type Entry } from '@/lib/entries';
 import { dayKey } from '@/lib/format';
+import { polishJournal } from '@/lib/journal';
 import { petEmoji, useSession } from '@/lib/session';
-import { fonts, radius, spacing, useTheme } from '@/lib/theme';
+import { fonts, MOODS, moodByKey, radius, spacing, useTheme, type MoodKey } from '@/lib/theme';
 
 function petStage(level: number): string {
   if (level <= 1) return 'Hatchling';
@@ -31,6 +41,12 @@ function computeStreak(entries: Entry[]): number {
   return streak;
 }
 
+const SOURCE_META: Record<Entry['source'], { icon: string; label: string }> = {
+  ai: { icon: 'sparkles-outline', label: 'Diary' },
+  luna: { icon: 'moon-outline', label: 'Luna AI' },
+  manual: { icon: 'partly-sunny-outline', label: 'Reflection' },
+};
+
 export default function LearnScreen() {
   const c = useTheme();
   const { today } = useCycle();
@@ -38,18 +54,65 @@ export default function LearnScreen() {
   const { profile } = useSession();
   const pet = profile.pet;
   const [expanded, setExpanded] = useState<string | null>(null);
+
+  // Journal composer
   const [composer, setComposer] = useState(false);
+  const [step, setStep] = useState<'write' | 'preview'>('write');
   const [draft, setDraft] = useState('');
+  const [mood, setMood] = useState<MoodKey | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [aiTitle, setAiTitle] = useState('');
+  const [aiBody, setAiBody] = useState('');
 
   const { level, streak, progress } = useMemo(() => {
     const lvl = Math.floor(entries.length / 3) + 1;
     return { level: lvl, streak: computeStreak(entries), progress: (entries.length % 3) / 3 };
   }, [entries]);
 
-  const saveReflection = () => {
-    if (!draft.trim()) return;
-    addEntry({ body: draft, source: 'manual' });
+  const openComposer = () => {
+    setStep('write');
     setDraft('');
+    setMood(null);
+    setError(null);
+    setAiTitle('');
+    setAiBody('');
+    setGenerating(false);
+    setComposer(true);
+  };
+
+  const turnIntoJournal = async () => {
+    const text = draft.trim();
+    if (!text || generating) return;
+    setGenerating(true);
+    setError(null);
+    const res = await polishJournal({
+      text,
+      mood: mood ? moodByKey(mood)?.label : undefined,
+      phase: today.content.label,
+      day: today.day,
+    });
+    setGenerating(false);
+    if ('error' in res) {
+      setError(res.error);
+      return;
+    }
+    setAiTitle(res.title);
+    setAiBody(res.body);
+    setStep('preview');
+  };
+
+  const saveAi = () => {
+    const bodyText = aiBody.trim();
+    if (!bodyText) return;
+    addEntry({ body: bodyText, title: aiTitle.trim() || undefined, mood, source: 'ai' });
+    setComposer(false);
+  };
+
+  const saveRaw = () => {
+    const text = draft.trim();
+    if (!text) return;
+    addEntry({ body: text, mood, source: 'manual' });
     setComposer(false);
   };
 
@@ -91,38 +154,46 @@ export default function LearnScreen() {
         </View>
 
         <View style={[styles.sectionRow, styles.topGap]}>
-          <SectionTitle style={styles.noMargin}>Past Journals & Reflections</SectionTitle>
-          <Pressable onPress={() => setComposer(true)} style={styles.addBtn} accessibilityLabel="New reflection">
+          <SectionTitle style={styles.noMargin}>Your Diary</SectionTitle>
+          <Pressable onPress={openComposer} style={styles.addBtn} accessibilityLabel="New journal entry">
             <Ionicons name="add" size={18} color={c.green} />
           </Pressable>
         </View>
 
+        <Pressable
+          onPress={openComposer}
+          style={[styles.newEntryCta, { backgroundColor: c.greenSoft }]}
+          accessibilityRole="button"
+          accessibilityLabel="Write a journal entry">
+          <Ionicons name="sparkles" size={16} color={c.green} />
+          <Text style={[styles.newEntryText, { color: c.green }]}>
+            Jot down how you feel — Luna turns it into a diary entry
+          </Text>
+        </Pressable>
+
         {entries.length === 0 ? (
           <Text style={[styles.empty, { color: c.textTertiary }]}>
-            No reflections yet. Add one, or save a chat from Luna.
+            No diary entries yet. Tap above to write your first — or save a chat from Luna.
           </Text>
         ) : (
           entries.map((e) => {
             const open = expanded === e.id;
             const date = new Date(e.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+            const meta = SOURCE_META[e.source] ?? SOURCE_META.manual;
             const heading = e.title ?? `${date}: ${e.body.split('\n')[0].slice(0, 40)}`;
             return (
               <Pressable key={e.id} onPress={() => setExpanded(open ? null : e.id)}>
                 <Card variant="outline" style={styles.journal}>
                   <View style={styles.journalHeader}>
                     <View style={[styles.journalIcon, { backgroundColor: c.surfaceAlt }]}>
-                      <Ionicons
-                        name={e.source === 'luna' ? 'moon-outline' : 'partly-sunny-outline'}
-                        size={16}
-                        color={c.green}
-                      />
+                      <Ionicons name={meta.icon as never} size={16} color={c.green} />
                     </View>
                     <View style={styles.flex}>
                       <Text style={[styles.journalTitle, { color: c.text }]} numberOfLines={open ? undefined : 1}>
                         {heading}
                       </Text>
                       <Text style={[styles.journalSub, { color: c.textTertiary }]}>
-                        {e.source === 'luna' ? 'Luna AI Summary' : 'Reflection'} · {date}
+                        {meta.label} · {date}
                       </Text>
                     </View>
                     <Ionicons name={open ? 'chevron-up' : 'chevron-forward'} size={18} color={c.textTertiary} />
@@ -147,20 +218,96 @@ export default function LearnScreen() {
       <Modal visible={composer} transparent animationType="slide" onRequestClose={() => setComposer(false)}>
         <Pressable style={styles.backdrop} onPress={() => setComposer(false)}>
           <Pressable style={[styles.sheet, { backgroundColor: c.surface }]} onPress={() => {}}>
-            <Text style={[styles.sheetTitle, { color: c.text }]}>New reflection</Text>
-            <TextInput
-              value={draft}
-              onChangeText={setDraft}
-              placeholder="What's on your mind?"
-              placeholderTextColor={c.textTertiary}
-              multiline
-              style={[styles.composerInput, { color: c.text, backgroundColor: c.surfaceAlt }]}
-            />
-            <Pressable
-              onPress={saveReflection}
-              style={[styles.saveBtn, { backgroundColor: draft.trim() ? c.green : c.surfaceAlt }]}>
-              <Text style={[styles.saveText, { color: draft.trim() ? c.accentText : c.textTertiary }]}>Save</Text>
-            </Pressable>
+            {step === 'write' ? (
+              <>
+                <Text style={[styles.sheetTitle, { color: c.text }]}>New diary entry</Text>
+
+                <Text style={[styles.fieldLabel, { color: c.textTertiary }]}>HOW ARE YOU FEELING?</Text>
+                <View style={styles.moodRow}>
+                  {MOODS.map((m) => {
+                    const sel = mood === m.key;
+                    return (
+                      <Pressable
+                        key={m.key}
+                        onPress={() => setMood(sel ? null : m.key)}
+                        accessibilityLabel={`Mood ${m.label}`}
+                        style={[styles.moodItem, sel && { backgroundColor: m.color + '24' }]}>
+                        <MaterialCommunityIcons
+                          name={m.icon as never}
+                          size={28}
+                          color={sel ? m.color : c.textTertiary}
+                        />
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                <Text style={[styles.fieldLabel, { color: c.textTertiary }]}>YOUR THOUGHTS</Text>
+                <TextInput
+                  value={draft}
+                  onChangeText={setDraft}
+                  placeholder="Jot down whatever's on your mind — messy is fine…"
+                  placeholderTextColor={c.textTertiary}
+                  multiline
+                  style={[styles.composerInput, { color: c.text, backgroundColor: c.surfaceAlt }]}
+                />
+
+                {error ? <Text style={[styles.errorText, { color: '#C2545A' }]}>{error}</Text> : null}
+
+                <Pressable
+                  onPress={turnIntoJournal}
+                  disabled={!draft.trim() || generating}
+                  style={[styles.saveBtn, { backgroundColor: draft.trim() && !generating ? c.green : c.surfaceAlt }]}>
+                  {generating ? (
+                    <View style={styles.btnRow}>
+                      <ActivityIndicator size="small" color={c.accentText} />
+                      <Text style={[styles.saveText, { color: c.accentText }]}>Writing your entry…</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.btnRow}>
+                      <Ionicons name="sparkles" size={16} color={draft.trim() ? c.accentText : c.textTertiary} />
+                      <Text style={[styles.saveText, { color: draft.trim() ? c.accentText : c.textTertiary }]}>
+                        Turn into a diary entry
+                      </Text>
+                    </View>
+                  )}
+                </Pressable>
+
+                <Pressable onPress={saveRaw} disabled={!draft.trim() || generating} style={styles.linkBtn}>
+                  <Text style={[styles.linkText, { color: c.textTertiary }]}>Save my notes as-is</Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Text style={[styles.sheetTitle, { color: c.text }]}>Your entry</Text>
+                <Text style={[styles.fieldLabel, { color: c.textTertiary }]}>TITLE</Text>
+                <TextInput
+                  value={aiTitle}
+                  onChangeText={setAiTitle}
+                  style={[styles.titleInput, { color: c.text, backgroundColor: c.surfaceAlt }]}
+                />
+                <Text style={[styles.fieldLabel, { color: c.textTertiary }]}>ENTRY (edit freely)</Text>
+                <TextInput
+                  value={aiBody}
+                  onChangeText={setAiBody}
+                  multiline
+                  style={[styles.composerInput, { color: c.text, backgroundColor: c.surfaceAlt }]}
+                />
+                <Pressable onPress={saveAi} style={[styles.saveBtn, { backgroundColor: c.green }]}>
+                  <Text style={[styles.saveText, { color: c.accentText }]}>Save to my diary</Text>
+                </Pressable>
+                <View style={styles.previewActions}>
+                  <Pressable onPress={() => setStep('write')} style={styles.linkBtn}>
+                    <Text style={[styles.linkText, { color: c.textTertiary }]}>← Back to notes</Text>
+                  </Pressable>
+                  <Pressable onPress={turnIntoJournal} disabled={generating} style={styles.linkBtn}>
+                    <Text style={[styles.linkText, { color: c.green }]}>
+                      {generating ? 'Rewriting…' : '↻ Rewrite'}
+                    </Text>
+                  </Pressable>
+                </View>
+              </>
+            )}
           </Pressable>
         </Pressable>
       </Modal>
@@ -187,6 +334,15 @@ const styles = StyleSheet.create({
   insightBody: { fontSize: 14, lineHeight: 21 },
   sectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md },
   addBtn: { width: 30, height: 30, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
+  newEntryCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  newEntryText: { fontSize: 14, fontWeight: '500', flex: 1 },
   empty: { fontSize: 14, lineHeight: 21, paddingVertical: spacing.sm },
   journal: { marginBottom: spacing.md },
   journalHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
@@ -207,8 +363,11 @@ const styles = StyleSheet.create({
   lessonTitle: { fontSize: 18, fontFamily: fonts.serif, color: '#FFFFFF' },
   lessonSub: { fontSize: 13, color: '#F0EFE6', marginTop: 2 },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' },
-  sheet: { borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, padding: spacing.xl, gap: spacing.md },
-  sheetTitle: { fontSize: 20, fontFamily: fonts.serif },
+  sheet: { borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, padding: spacing.xl, gap: spacing.sm },
+  sheetTitle: { fontSize: 20, fontFamily: fonts.serif, marginBottom: spacing.xs },
+  fieldLabel: { fontSize: 12, letterSpacing: 1, marginTop: spacing.sm },
+  moodRow: { flexDirection: 'row', gap: spacing.xs },
+  moodItem: { padding: spacing.sm, borderRadius: radius.pill },
   composerInput: {
     minHeight: 120,
     borderRadius: radius.md,
@@ -217,6 +376,12 @@ const styles = StyleSheet.create({
     lineHeight: 23,
     textAlignVertical: 'top',
   },
-  saveBtn: { borderRadius: radius.pill, paddingVertical: spacing.md, alignItems: 'center' },
+  titleInput: { borderRadius: radius.md, padding: spacing.md, fontSize: 16 },
+  errorText: { fontSize: 13, marginTop: spacing.xs },
+  btnRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  saveBtn: { borderRadius: radius.pill, paddingVertical: spacing.md, alignItems: 'center', marginTop: spacing.sm },
   saveText: { fontSize: 15, fontWeight: '600' },
+  linkBtn: { paddingVertical: spacing.sm, alignItems: 'center' },
+  linkText: { fontSize: 14, fontWeight: '500' },
+  previewActions: { flexDirection: 'row', justifyContent: 'space-between' },
 });

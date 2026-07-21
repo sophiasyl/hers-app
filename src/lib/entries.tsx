@@ -11,7 +11,7 @@ import {
 import { supabase } from './supabase';
 import type { MoodKey } from './theme';
 
-export type EntrySource = 'manual' | 'luna';
+export type EntrySource = 'manual' | 'luna' | 'ai';
 
 export interface Entry {
   id: string;

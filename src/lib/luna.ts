@@ -20,6 +20,7 @@ export interface LunaContext {
   phase?: string;
   day?: number;
   daysUntilNextPeriod?: number;
+  recentLogs?: string;
 }
 
 interface MessageRow {

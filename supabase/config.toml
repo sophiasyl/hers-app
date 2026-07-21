@@ -6,3 +6,6 @@ project_id = "vhcmlbvmkrsigoswtvoo"
 # Anthropic key behind it can't be abused anonymously.
 [functions.luna]
 verify_jwt = true
+
+[functions.journal]
+verify_jwt = true

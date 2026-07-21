@@ -14,11 +14,42 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ScreenHeader } from '@/components/ui';
-import { useCycle } from '@/lib/cycle';
+import { useCycle, type FlowLevel } from '@/lib/cycle';
 import { useEntries } from '@/lib/entries';
+import { dayKey } from '@/lib/format';
 import { LUNA_GREETING, sendToLuna, startChat, type LunaMessage } from '@/lib/luna';
+import { useMedication } from '@/lib/medication';
 import { useSession } from '@/lib/session';
-import { radius, spacing, useTheme } from '@/lib/theme';
+import { moodByKey, radius, spacing, useTheme, type MoodKey } from '@/lib/theme';
+import { useWellness, type DailyLog } from '@/lib/wellness';
+
+const DAY_MS = 86400000;
+
+// A compact, human-readable digest of the last few days of logging, handed to
+// Luna so her replies are grounded in what the user actually recorded.
+function buildRecentLogs(
+  flowLogs: Record<string, FlowLevel>,
+  wellnessLogs: Record<string, DailyLog>,
+  medLogs: Record<string, string[]>,
+): string {
+  const lines: string[] = [];
+  for (let i = 0; i < 5; i++) {
+    const k = dayKey(Date.now() - i * DAY_MS);
+    const flow = flowLogs[k];
+    const w = wellnessLogs[k];
+    const meds = medLogs[k];
+    const parts: string[] = [];
+    if (flow) parts.push(`${flow} flow`);
+    if (w?.mood) parts.push(`mood ${(moodByKey(w.mood as MoodKey)?.label ?? w.mood).toLowerCase()}`);
+    if (w?.symptoms?.length) parts.push(`symptoms ${w.symptoms.join(', ').toLowerCase()}`);
+    if (meds?.length) parts.push(`took ${meds.join(', ').toLowerCase()}`);
+    if (parts.length) {
+      const label = i === 0 ? 'Today' : i === 1 ? 'Yesterday' : `${i} days ago`;
+      lines.push(`${label}: ${parts.join('; ')}`);
+    }
+  }
+  return lines.join('\n');
+}
 
 const GREETING_ID = 'greeting';
 
@@ -32,8 +63,10 @@ function makeMsg(role: LunaMessage['role'], content: string): LunaMessage {
 
 export default function LunaScreen() {
   const c = useTheme();
-  const { today } = useCycle();
+  const { today, flowLogs } = useCycle();
   const { addEntry } = useEntries();
+  const { logs: wellnessLogs } = useWellness();
+  const { logs: medLogs } = useMedication();
   const { userId, profile } = useSession();
   const scrollRef = useRef<ScrollView>(null);
 
@@ -85,6 +118,7 @@ export default function LunaScreen() {
         phase: today.content.label,
         day: today.day,
         daysUntilNextPeriod: today.daysUntilNextPeriod,
+        recentLogs: buildRecentLogs(flowLogs, wellnessLogs, medLogs) || undefined,
       },
     });
 

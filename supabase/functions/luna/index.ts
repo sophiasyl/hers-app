@@ -30,6 +30,7 @@ interface LunaContext {
   phase?: string; // e.g. "FOLLICULAR"
   day?: number; // cycle day
   daysUntilNextPeriod?: number;
+  recentLogs?: string; // condensed recent flow/mood/symptom/medication log
 }
 
 interface LunaRequest {
@@ -65,6 +66,15 @@ function buildSystem(ctx: LunaContext | undefined, priorContext: string | undefi
       );
     }
     if (bits.length) parts.push('What you know about them today: ' + bits.join(' '));
+  }
+
+  if (ctx?.recentLogs && ctx.recentLogs.trim()) {
+    parts.push(
+      'What they have logged in the app recently (most recent first). Use this to make your support ' +
+        'specific and to gently acknowledge how they have been — but weave it in naturally, do not just ' +
+        'list it back:\n' +
+        ctx.recentLogs.trim(),
+    );
   }
 
   if (priorContext && priorContext.trim()) {
