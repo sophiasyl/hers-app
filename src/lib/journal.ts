@@ -7,6 +7,7 @@ export interface JournalInput {
   mood?: string;
   phase?: string;
   day?: number;
+  kind?: 'notes' | 'conversation';
 }
 
 export async function polishJournal(

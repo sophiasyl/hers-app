@@ -3,6 +3,7 @@ import { useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -17,10 +18,11 @@ import { ScreenHeader } from '@/components/ui';
 import { useCycle, type FlowLevel } from '@/lib/cycle';
 import { useEntries } from '@/lib/entries';
 import { dayKey } from '@/lib/format';
+import { polishJournal } from '@/lib/journal';
 import { LUNA_GREETING, sendToLuna, startChat, type LunaMessage } from '@/lib/luna';
 import { useMedication } from '@/lib/medication';
 import { useSession } from '@/lib/session';
-import { moodByKey, radius, spacing, useTheme, type MoodKey } from '@/lib/theme';
+import { fonts, moodByKey, radius, spacing, useTheme, type MoodKey } from '@/lib/theme';
 import { useWellness, type DailyLog } from '@/lib/wellness';
 
 const DAY_MS = 86400000;
@@ -77,6 +79,13 @@ export default function LunaScreen() {
   const [sending, setSending] = useState(false);
   const [saved, setSaved] = useState(false);
 
+  // Turn-chat-into-diary flow
+  const [converting, setConverting] = useState(false);
+  const [convertError, setConvertError] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [aiTitle, setAiTitle] = useState('');
+  const [aiBody, setAiBody] = useState('');
+
   const scrollDown = () =>
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
 
@@ -130,19 +139,40 @@ export default function LunaScreen() {
     scrollDown();
   };
 
-  const convert = () => {
+  const convert = async () => {
     const real = messages.filter((m) => m.id !== GREETING_ID);
-    if (!real.length) return;
-    const body = real
+    if (!real.length || converting) return;
+    const transcript = real
       .map((m) => `${m.role === 'assistant' ? 'Luna' : 'Me'}: ${m.content}`)
       .join('\n\n');
-    const date = new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    setConverting(true);
+    setConvertError(null);
+    const res = await polishJournal({
+      text: transcript,
+      kind: 'conversation',
+      phase: today.content.label,
+      day: today.day,
+    });
+    setConverting(false);
+    if ('error' in res) {
+      setConvertError(res.error);
+      return;
+    }
+    setAiTitle(res.title);
+    setAiBody(res.body);
+    setPreviewOpen(true);
+  };
+
+  const saveDiary = () => {
+    const bodyText = aiBody.trim();
+    if (!bodyText) return;
     addEntry({
-      body,
+      body: bodyText,
+      title: aiTitle.trim() || undefined,
       source: 'luna',
-      title: `Chat with Luna · ${date}`,
       tags: [today.content.label.toLowerCase()],
     });
+    setPreviewOpen(false);
     setSaved(true);
   };
 
@@ -191,22 +221,34 @@ export default function LunaScreen() {
             (saved ? (
               <View style={[styles.savedBanner, { backgroundColor: c.greenSoft }]}>
                 <Ionicons name="checkmark-circle" size={18} color={c.green} />
-                <Text style={[styles.savedText, { color: c.green }]}>Saved to your journal in Learn</Text>
+                <Text style={[styles.savedText, { color: c.green }]}>Saved to your diary in Learn</Text>
               </View>
             ) : (
-              <Pressable
-                onPress={convert}
-                accessibilityRole="button"
-                accessibilityLabel="Convert to Journal"
-                style={[styles.convert, { backgroundColor: c.green }]}>
-                <View>
-                  <Text style={[styles.convertTitle, { color: c.accentText }]}>Convert to Journal</Text>
-                  <Text style={[styles.convertSub, { color: c.accentText }]}>
-                    Save this conversation with Luna
-                  </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={20} color={c.accentText} />
-              </Pressable>
+              <>
+                <Pressable
+                  onPress={convert}
+                  disabled={converting}
+                  accessibilityRole="button"
+                  accessibilityLabel="Turn this chat into a diary entry"
+                  style={[styles.convert, { backgroundColor: c.green }]}>
+                  <View style={styles.flex}>
+                    <Text style={[styles.convertTitle, { color: c.accentText }]}>
+                      {converting ? 'Writing your entry…' : 'Turn this chat into a diary entry'}
+                    </Text>
+                    <Text style={[styles.convertSub, { color: c.accentText }]}>
+                      Luna writes it up for your Learn diary
+                    </Text>
+                  </View>
+                  {converting ? (
+                    <ActivityIndicator size="small" color={c.accentText} />
+                  ) : (
+                    <Ionicons name="sparkles" size={18} color={c.accentText} />
+                  )}
+                </Pressable>
+                {convertError ? (
+                  <Text style={[styles.convertErr, { color: '#C2545A' }]}>{convertError}</Text>
+                ) : null}
+              </>
             ))}
 
           <View style={[styles.inputBar, { backgroundColor: c.surfaceAlt }]}>
@@ -230,6 +272,48 @@ export default function LunaScreen() {
           </View>
         </View>
       </KeyboardAvoidingView>
+
+      <Modal
+        visible={previewOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setPreviewOpen(false)}>
+        <Pressable style={styles.backdrop} onPress={() => setPreviewOpen(false)}>
+          <Pressable style={[styles.sheet, { backgroundColor: c.surface }]} onPress={() => {}}>
+            <Text style={[styles.sheetTitle, { color: c.text }]}>Your diary entry</Text>
+            <Text style={[styles.fieldLabel, { color: c.textTertiary }]}>TITLE</Text>
+            <TextInput
+              value={aiTitle}
+              onChangeText={setAiTitle}
+              style={[styles.titleInput, { color: c.text, backgroundColor: c.surfaceAlt }]}
+            />
+            <Text style={[styles.fieldLabel, { color: c.textTertiary }]}>ENTRY (edit freely)</Text>
+            <TextInput
+              value={aiBody}
+              onChangeText={setAiBody}
+              multiline
+              style={[styles.bodyInput, { color: c.text, backgroundColor: c.surfaceAlt }]}
+            />
+            <Pressable onPress={saveDiary} style={[styles.diarySave, { backgroundColor: c.green }]}>
+              <Text style={[styles.diarySaveText, { color: c.accentText }]}>Save to my diary</Text>
+            </Pressable>
+            <View style={styles.previewActions}>
+              <Pressable onPress={() => setPreviewOpen(false)} style={styles.linkBtn}>
+                <Text style={[styles.linkText, { color: c.textTertiary }]}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  setPreviewOpen(false);
+                  convert();
+                }}
+                disabled={converting}
+                style={styles.linkBtn}>
+                <Text style={[styles.linkText, { color: c.green }]}>↻ Rewrite</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -277,4 +361,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  convertErr: { fontSize: 13, marginTop: spacing.xs, marginHorizontal: spacing.sm },
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' },
+  sheet: {
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    padding: spacing.xl,
+    gap: spacing.sm,
+  },
+  sheetTitle: { fontSize: 20, fontFamily: fonts.serif, marginBottom: spacing.xs },
+  fieldLabel: { fontSize: 12, letterSpacing: 1, marginTop: spacing.sm },
+  titleInput: { borderRadius: radius.md, padding: spacing.md, fontSize: 16 },
+  bodyInput: {
+    minHeight: 160,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    fontSize: 16,
+    lineHeight: 23,
+    textAlignVertical: 'top',
+  },
+  diarySave: { borderRadius: radius.pill, paddingVertical: spacing.md, alignItems: 'center', marginTop: spacing.sm },
+  diarySaveText: { fontSize: 15, fontWeight: '600' },
+  previewActions: { flexDirection: 'row', justifyContent: 'space-between' },
+  linkBtn: { paddingVertical: spacing.sm, alignItems: 'center' },
+  linkText: { fontSize: 14, fontWeight: '500' },
 });

@@ -16,9 +16,10 @@ interface JournalRequest {
   mood?: string;
   phase?: string;
   day?: number;
+  kind?: 'notes' | 'conversation';
 }
 
-const SYSTEM =
+const SYSTEM_NOTES =
   'You are a gentle journaling companion inside the "Hers." wellness app. The user jots down rough, ' +
   'unpolished thoughts about their day and how they feel. Turn their notes into a warm, first-person ' +
   'diary entry that genuinely sounds like THEM — honest, natural and reflective, never flowery, ' +
@@ -26,6 +27,15 @@ const SYSTEM =
   'shape it into 1–3 short paragraphs. Do NOT invent events or feelings they did not express. If they ' +
   'mention their cycle or mood you may acknowledge it lightly. Also write a short, evocative title of ' +
   '3–6 words. Respond only with the requested JSON.';
+
+const SYSTEM_CONVERSATION =
+  'You are a gentle journaling companion inside the "Hers." wellness app. Below is a conversation ' +
+  'between the user and Luna, their supportive AI companion. Write a warm, first-person diary entry ' +
+  "FROM THE USER'S PERSPECTIVE that captures what they were going through, how they felt, and anything " +
+  'they realised or decided — as if the user wrote it in their own journal afterward. Only include what ' +
+  'the user actually expressed; do NOT invent events or feelings. Do NOT mention Luna, the chat, or that ' +
+  'this came from a conversation. Keep it to 1–3 short, honest paragraphs, never flowery or clinical. ' +
+  'Also write a short, evocative title of 3–6 words. Respond only with the requested JSON.';
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -38,10 +48,14 @@ Deno.serve(async (req: Request) => {
     const text = (body.text ?? '').trim();
     if (!text) return json({ error: 'Nothing to journal.' }, 400);
 
+    const isConversation = body.kind === 'conversation';
+    const system = isConversation ? SYSTEM_CONVERSATION : SYSTEM_NOTES;
+
     const ctxBits: string[] = [];
     if (body.mood) ctxBits.push(`They say they feel: ${body.mood}.`);
     if (body.phase && body.day) ctxBits.push(`They are on day ${body.day}, ${body.phase.toLowerCase()} phase.`);
-    const userText = (ctxBits.length ? ctxBits.join(' ') + '\n\n' : '') + `Their notes:\n${text}`;
+    const heading = isConversation ? 'The conversation:' : 'Their notes:';
+    const userText = (ctxBits.length ? ctxBits.join(' ') + '\n\n' : '') + `${heading}\n${text}`;
 
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
@@ -49,7 +63,7 @@ Deno.serve(async (req: Request) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify({
-          systemInstruction: { parts: [{ text: SYSTEM }] },
+          systemInstruction: { parts: [{ text: system }] },
           contents: [{ role: 'user', parts: [{ text: userText }] }],
           generationConfig: {
             maxOutputTokens: 900,
