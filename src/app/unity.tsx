@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Card, ScreenHeader, SectionTitle } from '@/components/ui';
 import { COMMUNITY_POSTS, UPCOMING_CIRCLES, type CommunityPost, type Circle } from '@/lib/content';
 import { useCycle } from '@/lib/cycle';
+import { moderateText } from '@/lib/moderate';
 import { useSession } from '@/lib/session';
 import { fonts, radius, spacing, useTheme } from '@/lib/theme';
 
@@ -24,6 +25,10 @@ export default function UnityScreen() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [reply, setReply] = useState('');
   const [draft, setDraft] = useState('');
+  const [posting, setPosting] = useState(false);
+  const [postError, setPostError] = useState<string | null>(null);
+  const [replyChecking, setReplyChecking] = useState(false);
+  const [replyError, setReplyError] = useState<string | null>(null);
 
   const toggleHug = (id: string) =>
     setPosts((prev) =>
@@ -35,11 +40,20 @@ export default function UnityScreen() {
   const toggleComments = (id: string) => {
     setExpanded((prev) => (prev === id ? null : id));
     setReply('');
+    setReplyError(null);
   };
 
-  const submitReply = (id: string) => {
+  const submitReply = async (id: string) => {
     const text = reply.trim();
-    if (!text) return;
+    if (!text || replyChecking) return;
+    setReplyChecking(true);
+    setReplyError(null);
+    const mod = await moderateText(text);
+    setReplyChecking(false);
+    if (!mod.allowed) {
+      setReplyError(mod.reason);
+      return;
+    }
     setPosts((prev) =>
       prev.map((p) =>
         p.id === id
@@ -54,9 +68,17 @@ export default function UnityScreen() {
     setReply('');
   };
 
-  const submitPost = () => {
+  const submitPost = async () => {
     const text = draft.trim();
-    if (!text) return;
+    if (!text || posting) return;
+    setPosting(true);
+    setPostError(null);
+    const mod = await moderateText(text);
+    setPosting(false);
+    if (!mod.allowed) {
+      setPostError(mod.reason);
+      return;
+    }
     const post: LivePost = {
       id: `mine${Date.now()}`,
       author: me,
@@ -93,20 +115,42 @@ export default function UnityScreen() {
             </View>
             <TextInput
               value={draft}
-              onChangeText={setDraft}
+              onChangeText={(t) => {
+                setDraft(t);
+                if (postError) setPostError(null);
+              }}
               placeholder="Share how you're feeling with the Greenhouse…"
               placeholderTextColor={c.textTertiary}
               multiline
+              editable={!posting}
               style={[styles.composerInput, { color: c.text }]}
             />
           </View>
+          {postError ? (
+            <View style={styles.guardRow}>
+              <Ionicons name="alert-circle-outline" size={15} color="#C2545A" />
+              <Text style={[styles.guardText, { color: '#C2545A' }]}>{postError}</Text>
+            </View>
+          ) : (
+            <Text style={[styles.guidelines, { color: c.textTertiary }]}>
+              Be kind. No selling, soliciting, or sharing contact info — posts are checked against our
+              community guidelines.
+            </Text>
+          )}
           <Pressable
             onPress={submitPost}
-            disabled={!draft.trim()}
-            style={[styles.postBtn, { backgroundColor: draft.trim() ? c.green : c.surfaceAlt }]}>
-            <Text style={[styles.postBtnText, { color: draft.trim() ? c.accentText : c.textTertiary }]}>
-              Share
-            </Text>
+            disabled={!draft.trim() || posting}
+            style={[styles.postBtn, { backgroundColor: draft.trim() && !posting ? c.green : c.surfaceAlt }]}>
+            {posting ? (
+              <View style={styles.postBtnRow}>
+                <ActivityIndicator size="small" color={c.accentText} />
+                <Text style={[styles.postBtnText, { color: c.accentText }]}>Checking…</Text>
+              </View>
+            ) : (
+              <Text style={[styles.postBtnText, { color: draft.trim() ? c.accentText : c.textTertiary }]}>
+                Share
+              </Text>
+            )}
           </Pressable>
         </Card>
 
@@ -182,21 +226,35 @@ export default function UnityScreen() {
                   <View style={[styles.replyRow, { backgroundColor: c.surfaceAlt }]}>
                     <TextInput
                       value={reply}
-                      onChangeText={setReply}
+                      onChangeText={(t) => {
+                        setReply(t);
+                        if (replyError) setReplyError(null);
+                      }}
                       placeholder="Share a tip or kind word…"
                       placeholderTextColor={c.textTertiary}
                       style={[styles.replyInput, { color: c.text }]}
                       onSubmitEditing={() => submitReply(p.id)}
+                      editable={!replyChecking}
                       returnKeyType="send"
                     />
                     <Pressable
                       onPress={() => submitReply(p.id)}
-                      disabled={!reply.trim()}
-                      style={[styles.replySend, { backgroundColor: reply.trim() ? c.green : 'transparent' }]}
+                      disabled={!reply.trim() || replyChecking}
+                      style={[styles.replySend, { backgroundColor: reply.trim() && !replyChecking ? c.green : 'transparent' }]}
                       accessibilityLabel="Send tip">
-                      <Ionicons name="send" size={15} color={reply.trim() ? c.accentText : c.textTertiary} />
+                      {replyChecking ? (
+                        <ActivityIndicator size="small" color={c.green} />
+                      ) : (
+                        <Ionicons name="send" size={15} color={reply.trim() ? c.accentText : c.textTertiary} />
+                      )}
                     </Pressable>
                   </View>
+                  {replyError ? (
+                    <View style={styles.guardRow}>
+                      <Ionicons name="alert-circle-outline" size={14} color="#C2545A" />
+                      <Text style={[styles.guardText, { color: '#C2545A' }]}>{replyError}</Text>
+                    </View>
+                  ) : null}
                 </View>
               ) : null}
             </Card>
@@ -257,6 +315,10 @@ const styles = StyleSheet.create({
   composerInput: { flex: 1, fontSize: 15, lineHeight: 21, minHeight: 40, paddingTop: 8, textAlignVertical: 'top' },
   postBtn: { alignSelf: 'flex-end', borderRadius: radius.pill, paddingVertical: spacing.sm, paddingHorizontal: spacing.xl },
   postBtnText: { fontSize: 14, fontWeight: '600' },
+  postBtnRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  guidelines: { fontSize: 12, lineHeight: 17 },
+  guardRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: spacing.xs },
+  guardText: { flex: 1, fontSize: 13, lineHeight: 18 },
   sectionRow: {
     flexDirection: 'row',
     alignItems: 'center',

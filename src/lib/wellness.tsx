@@ -27,6 +27,64 @@ export const SYMPTOMS = [
   'Low energy',
 ];
 
+// Gentle self-care guidance per symptom — what tends to soothe it, and foods
+// that can help. Suggestions only, not medical advice.
+export interface SymptomCare {
+  soothe: string;
+  foods: string;
+}
+
+export const SYMPTOM_CARE: Record<string, SymptomCare> = {
+  Cramps: {
+    soothe: 'A hot water bottle, gentle stretching, and slow deep breaths',
+    foods: 'Ginger or chamomile tea, dark chocolate, magnesium-rich greens',
+  },
+  Headache: {
+    soothe: 'Hydrate, rest in a dim quiet room, try a cool compress',
+    foods: 'Water, nuts and seeds (magnesium), a little caffeine if it usually helps you',
+  },
+  Bloating: {
+    soothe: 'A short walk, ease off salt, sip peppermint tea',
+    foods: 'Water, banana and other potassium foods, ginger',
+  },
+  Fatigue: {
+    soothe: 'A short rest or nap, some morning daylight, a gentle walk',
+    foods: 'Iron-rich greens, protein, slow-release carbs like oats',
+  },
+  'Tender breasts': {
+    soothe: 'A supportive bra, a warm compress, less caffeine',
+    foods: 'Less salt, omega-3s (oily fish, walnuts, flax)',
+  },
+  Acne: {
+    soothe: 'Gentle cleansing, hands off your face, stay hydrated',
+    foods: 'Water, more veg, go easy on sugar and dairy',
+  },
+  Backache: {
+    soothe: 'Heat, gentle stretching, and minding your posture',
+    foods: 'Anti-inflammatory ginger and turmeric, magnesium foods',
+  },
+  Nausea: {
+    soothe: 'Ginger, small frequent snacks, fresh air',
+    foods: 'Ginger tea, plain crackers, peppermint',
+  },
+  Cravings: {
+    soothe: 'Eat regular balanced meals and stay hydrated',
+    foods: 'Complex carbs, protein with a healthy fat, a little dark chocolate',
+  },
+  'Mood swings': {
+    soothe: 'Slow deep breathing, a walk outside, a quick journal',
+    foods: 'Omega-3s, complex carbs, magnesium-rich greens',
+  },
+  Insomnia: {
+    soothe: 'A cool dark room, no screens after 9pm, an earlier wind-down',
+    foods: 'Chamomile or tart-cherry tea, magnesium foods',
+  },
+  'Low energy': {
+    soothe: 'Morning light, a short walk, steady hydration',
+    foods: 'Iron, protein, whole grains',
+  },
+};
+
 export interface DailyLog {
   mood: MoodKey | null;
   symptoms: string[];

@@ -9,3 +9,6 @@ verify_jwt = true
 
 [functions.journal]
 verify_jwt = true
+
+[functions.moderate]
+verify_jwt = true

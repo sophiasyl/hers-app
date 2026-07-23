@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Card, ScreenHeader, SectionTitle } from '@/components/ui';
 import { FLOW_LEVELS, useCycle } from '@/lib/cycle';
 import { useEntries } from '@/lib/entries';
-import { useWellness } from '@/lib/wellness';
+import { SYMPTOM_CARE, useWellness } from '@/lib/wellness';
 import { fonts, MOODS, radius, spacing, useTheme } from '@/lib/theme';
 
 const DAY = 86400000;
@@ -172,6 +172,30 @@ export default function InsightsScreen() {
                       </View>
                     ))}
                   </View>
+
+                  <Text style={[styles.subLabel, { color: c.textTertiary }]}>What helps</Text>
+                  <View style={styles.careList}>
+                    {wellness.topSymptoms.slice(0, 3).map(([name]) => {
+                      const care = SYMPTOM_CARE[name];
+                      if (!care) return null;
+                      return (
+                        <View key={name} style={[styles.careCard, { backgroundColor: c.surfaceAlt }]}>
+                          <Text style={[styles.careName, { color: c.text }]}>{name}</Text>
+                          <View style={styles.careRow}>
+                            <Ionicons name="leaf-outline" size={15} color={c.green} style={styles.careIcon} />
+                            <Text style={[styles.careText, { color: c.textSecondary }]}>{care.soothe}</Text>
+                          </View>
+                          <View style={styles.careRow}>
+                            <Ionicons name="restaurant-outline" size={15} color={c.green} style={styles.careIcon} />
+                            <Text style={[styles.careText, { color: c.textSecondary }]}>Eat: {care.foods}</Text>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                  <Text style={[styles.careDisclaimer, { color: c.textTertiary }]}>
+                    Gentle suggestions to ease symptoms — not medical advice.
+                  </Text>
                 </>
               ) : null}
             </>
@@ -240,5 +264,12 @@ const styles = StyleSheet.create({
   symptomRow: { flexDirection: 'row', justifyContent: 'space-between' },
   symptomName: { fontSize: 14 },
   symptomCount: { fontSize: 14 },
+  careList: { gap: spacing.sm },
+  careCard: { borderRadius: radius.md, padding: spacing.md, gap: spacing.xs },
+  careName: { fontSize: 14, fontWeight: '600', marginBottom: 2 },
+  careRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
+  careIcon: { marginTop: 2 },
+  careText: { flex: 1, fontSize: 13, lineHeight: 19 },
+  careDisclaimer: { fontSize: 12, lineHeight: 17, marginTop: spacing.sm },
 });
 
