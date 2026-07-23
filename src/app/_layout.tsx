@@ -97,7 +97,7 @@ function Gate() {
       <EntriesProvider userId={userId}>
         <WellnessProvider userId={userId}>
           <MedicationProvider userId={userId}>
-            <CommunityProvider userId={userId}>
+            <CommunityProvider userId={userId} authorName={profile.name || 'Someone'}>
               {profile.onboarded ? <AppChrome /> : <Onboarding />}
             </CommunityProvider>
           </MedicationProvider>
