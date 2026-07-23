@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Card, ScreenHeader, SectionTitle } from '@/components/ui';
 import { COMMUNITY_POSTS, UPCOMING_CIRCLES, type CommunityPost, type Circle } from '@/lib/content';
+import { useCommunity } from '@/lib/community';
 import { useCycle } from '@/lib/cycle';
 import { moderateText } from '@/lib/moderate';
 import { useSession } from '@/lib/session';
@@ -16,6 +17,7 @@ export default function UnityScreen() {
   const c = useTheme();
   const { today } = useCycle();
   const { profile } = useSession();
+  const { addPost: persistPost } = useCommunity();
   const me = profile.name?.trim() || 'You';
   const myInitial = (me[0] ?? 'Y').toUpperCase();
 
@@ -94,6 +96,8 @@ export default function UnityScreen() {
     };
     setPosts((prev) => [post, ...prev]);
     setDraft('');
+    // Persist the user's own post so it shows up later in their history.
+    void persistPost({ body: post.body, phase: post.phase });
   };
 
   return (

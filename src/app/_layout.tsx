@@ -9,6 +9,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import { AuthScreen } from '@/components/AuthScreen';
 import { Onboarding } from '@/components/Onboarding';
 import '@/lib/applyFonts';
+import { CommunityProvider } from '@/lib/community';
 import { CycleProvider } from '@/lib/cycle';
 import { EntriesProvider } from '@/lib/entries';
 import { MedicationProvider } from '@/lib/medication';
@@ -96,7 +97,9 @@ function Gate() {
       <EntriesProvider userId={userId}>
         <WellnessProvider userId={userId}>
           <MedicationProvider userId={userId}>
-            {profile.onboarded ? <AppChrome /> : <Onboarding />}
+            <CommunityProvider userId={userId}>
+              {profile.onboarded ? <AppChrome /> : <Onboarding />}
+            </CommunityProvider>
           </MedicationProvider>
         </WellnessProvider>
       </EntriesProvider>

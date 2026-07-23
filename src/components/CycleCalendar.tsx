@@ -22,7 +22,7 @@ function startOfDay(ts: number): number {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 }
 
-export function CycleCalendar() {
+export function CycleCalendar({ onDayPress }: { onDayPress?: (dateMs: number) => void } = {}) {
   const c = useTheme();
   const { phaseFor, flowLogs } = useCycle();
   const todayKey = startOfDay(Date.now());
@@ -83,7 +83,10 @@ export function CycleCalendar() {
           const isToday = startOfDay(dateMs) === todayKey;
           return (
             <View key={i} style={styles.cell}>
-              <View
+              <Pressable
+                onPress={() => onDayPress?.(dateMs)}
+                accessibilityRole="button"
+                accessibilityLabel={`${monthName} ${d}`}
                 style={[
                   styles.dayCircle,
                   { backgroundColor: bg },
@@ -93,7 +96,7 @@ export function CycleCalendar() {
                   style={[styles.dayNum, { color: c.text }, isToday && { fontFamily: fonts.bodyBold }]}>
                   {d}
                 </Text>
-              </View>
+              </Pressable>
             </View>
           );
         })}

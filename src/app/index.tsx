@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CycleCalendar } from '@/components/CycleCalendar';
 import { CycleRing } from '@/components/CycleRing';
+import { DayDetail } from '@/components/DayDetail';
 import { Card, ScreenHeader, SectionTitle } from '@/components/ui';
 import { FLOW_LEVELS, useCycle, type FlowLevel } from '@/lib/cycle';
 import { conceptionChance, type ConceptionLevel } from '@/lib/cycleMath';
@@ -49,6 +50,7 @@ export default function TrackScreen() {
   const [medModal, setMedModal] = useState(false);
   const [meds, setMeds] = useState<string[]>([]);
   const [customMed, setCustomMed] = useState('');
+  const [dayDetail, setDayDetail] = useState<string | null>(null);
 
   const open = () => {
     setFlow(loggedFlow ?? null);
@@ -189,8 +191,11 @@ export default function TrackScreen() {
         ) : null}
 
         <SectionTitle style={styles.calendarTitle}>Cycle calendar</SectionTitle>
-        <CycleCalendar />
+        <Text style={[styles.calendarHint, { color: c.textTertiary }]}>Tap any day to see what you logged.</Text>
+        <CycleCalendar onDayPress={(ms) => setDayDetail(dayKey(ms))} />
       </ScrollView>
+
+      <DayDetail dateKey={dayDetail} onClose={() => setDayDetail(null)} />
 
       <Modal visible={modal} transparent animationType="slide" onRequestClose={() => setModal(false)}>
         <Pressable style={styles.backdrop} onPress={() => setModal(false)}>
@@ -357,6 +362,7 @@ const styles = StyleSheet.create({
   },
   nextPeriodText: { fontSize: 14, fontWeight: '500' },
   calendarTitle: { marginTop: spacing.xl },
+  calendarHint: { fontSize: 13, marginTop: -spacing.sm, marginBottom: spacing.md },
   chanceCard: { marginBottom: spacing.lg },
   chanceHeader: {
     flexDirection: 'row',

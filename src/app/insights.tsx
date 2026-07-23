@@ -1,15 +1,36 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useMemo } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { DayDetail } from '@/components/DayDetail';
 import { Card, ScreenHeader, SectionTitle } from '@/components/ui';
+import { useCommunity } from '@/lib/community';
 import { FLOW_LEVELS, useCycle } from '@/lib/cycle';
 import { useEntries } from '@/lib/entries';
+import { dayKey } from '@/lib/format';
+import { useMedication } from '@/lib/medication';
 import { SYMPTOM_CARE, useWellness } from '@/lib/wellness';
 import { fonts, MOODS, radius, spacing, useTheme } from '@/lib/theme';
 
 const DAY = 86400000;
+
+function dayFromKey(k: string): number {
+  const [y, m, d] = k.split('-').map(Number);
+  return new Date(y, m, d).getTime();
+}
+
+function formatDay(k: string): string {
+  return new Date(dayFromKey(k)).toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
 
 const REGULARITY_NOTE: Record<string, string> = {
   regular: 'Your cycles are regular — they vary by only a day or two. Predictions here are reliable.',
@@ -24,6 +45,35 @@ export default function InsightsScreen() {
   const { today, flowLogs } = useCycle();
   const { entries } = useEntries();
   const { logs: wellnessLogs } = useWellness();
+  const { logs: medLogs } = useMedication();
+  const { myPosts } = useCommunity();
+
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [dayDetail, setDayDetail] = useState<string | null>(null);
+
+  const historyDays = useMemo(() => {
+    const keys = new Set<string>();
+    Object.keys(flowLogs).forEach((k) => keys.add(k));
+    Object.keys(wellnessLogs).forEach((k) => keys.add(k));
+    Object.keys(medLogs).forEach((k) => keys.add(k));
+    entries.forEach((e) => keys.add(dayKey(e.createdAt)));
+    myPosts.forEach((p) => keys.add(dayKey(p.createdAt)));
+    return Array.from(keys)
+      .map((k) => {
+        const w = wellnessLogs[k];
+        const parts: string[] = [];
+        if (flowLogs[k]) parts.push(`${FLOW_LEVELS.find((f) => f.key === flowLogs[k])?.label ?? 'Flow'} flow`);
+        if (w?.mood) parts.push(MOODS.find((m) => m.key === w.mood)?.label ?? 'Mood');
+        if (w?.symptoms?.length) parts.push(plural(w.symptoms.length, 'symptom'));
+        if (medLogs[k]?.length) parts.push(plural(medLogs[k].length, 'med'));
+        const nEntries = entries.filter((e) => dayKey(e.createdAt) === k).length;
+        if (nEntries) parts.push(`${nEntries} diary`);
+        const nPosts = myPosts.filter((p) => dayKey(p.createdAt) === k).length;
+        if (nPosts) parts.push(plural(nPosts, 'post'));
+        return { key: k, ms: dayFromKey(k), summary: parts.join(' · ') || '—' };
+      })
+      .sort((a, b) => b.ms - a.ms);
+  }, [flowLogs, wellnessLogs, medLogs, entries, myPosts]);
 
   const wellness = useMemo(() => {
     const arr = Object.values(wellnessLogs);
@@ -87,6 +137,19 @@ export default function InsightsScreen() {
     <SafeAreaView style={[styles.safe, { backgroundColor: c.bg }]} edges={['top']}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <ScreenHeader title="Cycle Insights" />
+
+        <Pressable
+          onPress={() => setHistoryOpen(true)}
+          style={[styles.historyBtn, { backgroundColor: c.green }]}
+          accessibilityRole="button"
+          accessibilityLabel="Your history">
+          <Ionicons name="time-outline" size={20} color={c.accentText} />
+          <View style={styles.historyTextWrap}>
+            <Text style={[styles.historyTitle, { color: c.accentText }]}>Your history</Text>
+            <Text style={[styles.historySub, { color: c.accentText }]}>Logs, diary &amp; posts by day</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={c.accentText} />
+        </Pressable>
 
         <SectionTitle>Your cycle analytics</SectionTitle>
         <View style={styles.metrics}>
@@ -220,6 +283,45 @@ export default function InsightsScreen() {
           </View>
         </Card>
       </ScrollView>
+
+      <Modal visible={historyOpen} transparent animationType="slide" onRequestClose={() => setHistoryOpen(false)}>
+        <Pressable style={styles.backdrop} onPress={() => setHistoryOpen(false)}>
+          <Pressable style={[styles.sheet, { backgroundColor: c.surface }]} onPress={() => {}}>
+            <View style={styles.sheetHeader}>
+              <Text style={[styles.sheetTitle, { color: c.text }]}>Your history</Text>
+              <Pressable onPress={() => setHistoryOpen(false)} hitSlop={8} accessibilityLabel="Close">
+                <Ionicons name="close" size={22} color={c.textTertiary} />
+              </Pressable>
+            </View>
+            {historyDays.length === 0 ? (
+              <Text style={[styles.historyEmpty, { color: c.textTertiary }]}>
+                Nothing logged yet. Track a day, write a diary entry, or post in Unity — it’ll all show
+                up here by day.
+              </Text>
+            ) : (
+              <ScrollView style={styles.historyScroll} showsVerticalScrollIndicator={false}>
+                {historyDays.map((day) => (
+                  <Pressable
+                    key={day.key}
+                    onPress={() => {
+                      setHistoryOpen(false);
+                      setDayDetail(day.key);
+                    }}
+                    style={[styles.dayRow, { borderBottomColor: c.border }]}>
+                    <View style={styles.flex}>
+                      <Text style={[styles.dayRowDate, { color: c.text }]}>{formatDay(day.key)}</Text>
+                      <Text style={[styles.dayRowSummary, { color: c.textTertiary }]}>{day.summary}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={c.textTertiary} />
+                  </Pressable>
+                ))}
+              </ScrollView>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <DayDetail dateKey={dayDetail} onClose={() => setDayDetail(null)} />
     </SafeAreaView>
   );
 }
@@ -271,5 +373,43 @@ const styles = StyleSheet.create({
   careIcon: { marginTop: 2 },
   careText: { flex: 1, fontSize: 13, lineHeight: 19 },
   careDisclaimer: { fontSize: 12, lineHeight: 17, marginTop: spacing.sm },
+  flex: { flex: 1 },
+  historyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    borderRadius: radius.md,
+    padding: spacing.lg,
+    marginBottom: spacing.lg,
+    boxShadow: '0px 6px 16px rgba(80, 74, 58, 0.12)',
+  },
+  historyTextWrap: { flex: 1 },
+  historyTitle: { fontSize: 15, fontWeight: '600' },
+  historySub: { fontSize: 13, opacity: 0.85, marginTop: 2 },
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' },
+  sheet: {
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    padding: spacing.xl,
+    maxHeight: '80%',
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  sheetTitle: { fontSize: 20, fontFamily: fonts.serif },
+  historyEmpty: { fontSize: 15, lineHeight: 22, paddingVertical: spacing.lg },
+  historyScroll: {},
+  dayRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingVertical: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  dayRowDate: { fontSize: 15, fontWeight: '500' },
+  dayRowSummary: { fontSize: 13, marginTop: 2 },
 });
 
