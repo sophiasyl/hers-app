@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -10,6 +10,7 @@ import { FLOW_LEVELS, useCycle } from '@/lib/cycle';
 import { useEntries } from '@/lib/entries';
 import { dayKey } from '@/lib/format';
 import { useMedication } from '@/lib/medication';
+import { getSymptomTips, type SymptomTip } from '@/lib/tips';
 import { SYMPTOM_CARE, useWellness } from '@/lib/wellness';
 import { fonts, MOODS, radius, spacing, useTheme } from '@/lib/theme';
 
@@ -50,6 +51,7 @@ export default function InsightsScreen() {
 
   const [historyOpen, setHistoryOpen] = useState(false);
   const [dayDetail, setDayDetail] = useState<string | null>(null);
+  const [aiTips, setAiTips] = useState<Record<string, SymptomTip> | null>(null);
 
   const historyDays = useMemo(() => {
     const keys = new Set<string>();
@@ -92,6 +94,29 @@ export default function InsightsScreen() {
       .slice(0, 5);
     return { moodCounts, moodTotal, maxMood, topSymptoms };
   }, [wellnessLogs]);
+
+  // Ask the AI for fresh, phase-aware self-care tips for the top symptoms
+  // (cached per day so it varies day to day without re-hitting the API).
+  const topSig = wellness.topSymptoms.slice(0, 3).map(([n]) => n).join(',');
+  useEffect(() => {
+    const names = topSig ? topSig.split(',') : [];
+    if (!names.length) {
+      setAiTips(null);
+      return;
+    }
+    let active = true;
+    getSymptomTips({
+      symptoms: names,
+      phase: today.content.label,
+      day: today.day,
+      dayKey: dayKey(Date.now()),
+    }).then((m) => {
+      if (active) setAiTips(m);
+    });
+    return () => {
+      active = false;
+    };
+  }, [topSig, today.content.label, today.day]);
 
   const stats = useMemo(() => {
     const history = today.history;
@@ -236,10 +261,20 @@ export default function InsightsScreen() {
                     ))}
                   </View>
 
-                  <Text style={[styles.subLabel, { color: c.textTertiary }]}>What helps</Text>
+                  <View style={styles.careHeader}>
+                    <Text style={[styles.subLabel, { color: c.textTertiary }]}>What helps</Text>
+                    {aiTips ? (
+                      <View style={styles.careBadge}>
+                        <Ionicons name="sparkles" size={11} color={c.green} />
+                        <Text style={[styles.careBadgeText, { color: c.green }]}>
+                          Personalized for day {today.day}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
                   <View style={styles.careList}>
                     {wellness.topSymptoms.slice(0, 3).map(([name]) => {
-                      const care = SYMPTOM_CARE[name];
+                      const care = aiTips?.[name.toLowerCase()] ?? SYMPTOM_CARE[name];
                       if (!care) return null;
                       return (
                         <View key={name} style={[styles.careCard, { backgroundColor: c.surfaceAlt }]}>
@@ -257,7 +292,9 @@ export default function InsightsScreen() {
                     })}
                   </View>
                   <Text style={[styles.careDisclaimer, { color: c.textTertiary }]}>
-                    Gentle suggestions to ease symptoms — not medical advice.
+                    {aiTips
+                      ? 'Tailored to your cycle by Luna — gentle suggestions, not medical advice.'
+                      : 'Gentle suggestions to ease symptoms — not medical advice.'}
                   </Text>
                 </>
               ) : null}
@@ -366,6 +403,9 @@ const styles = StyleSheet.create({
   symptomRow: { flexDirection: 'row', justifyContent: 'space-between' },
   symptomName: { fontSize: 14 },
   symptomCount: { fontSize: 14 },
+  careHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  careBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: spacing.sm },
+  careBadgeText: { fontSize: 11, fontWeight: '600' },
   careList: { gap: spacing.sm },
   careCard: { borderRadius: radius.md, padding: spacing.md, gap: spacing.xs },
   careName: { fontSize: 14, fontWeight: '600', marginBottom: 2 },

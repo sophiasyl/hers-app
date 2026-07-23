@@ -12,3 +12,6 @@ verify_jwt = true
 
 [functions.moderate]
 verify_jwt = true
+
+[functions.tips]
+verify_jwt = true
