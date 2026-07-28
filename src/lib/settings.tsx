@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, Platform, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 
+import { deleteMyData, exportMyData } from './privacy';
 import { useSession } from './session';
 import {
   fonts,
@@ -99,7 +100,55 @@ const APPEARANCES: { key: Appearance; label: string }[] = [
 function SettingsModal() {
   const c = useTheme();
   const { settingsOpen, closeSettings, themeKey, appearance, setThemeKey, setAppearance } = useSettings();
-  const { profile, email, logOut } = useSession();
+  const { profile, email, userId, logOut } = useSession();
+
+  const [exporting, setExporting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const onExport = async () => {
+    if (!userId || exporting) return;
+    setExporting(true);
+    try {
+      const json = JSON.stringify(await exportMyData(userId), null, 2);
+      const g = globalThis as unknown as {
+        document?: { createElement: (t: string) => Record<string, unknown> & { click: () => void } };
+        Blob?: new (parts: string[], opts: { type: string }) => unknown;
+        URL?: { createObjectURL: (b: unknown) => string; revokeObjectURL: (u: string) => void };
+      };
+      if (Platform.OS === 'web' && g.document && g.Blob && g.URL) {
+        const url = g.URL.createObjectURL(new g.Blob([json], { type: 'application/json' }));
+        const a = g.document.createElement('a');
+        a.href = url;
+        a.download = 'hers-my-data.json';
+        a.click();
+        g.URL.revokeObjectURL(url);
+      } else {
+        await Share.share({ message: json });
+      }
+    } catch {
+      // ignore
+    }
+    setExporting(false);
+  };
+
+  const onDelete = async () => {
+    if (!userId || deleting) return;
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      return;
+    }
+    setDeleting(true);
+    try {
+      await deleteMyData(userId);
+    } catch {
+      // ignore
+    }
+    setDeleting(false);
+    setConfirmDelete(false);
+    closeSettings();
+    logOut();
+  };
 
   return (
     <Modal visible={settingsOpen} transparent animationType="slide" onRequestClose={closeSettings}>
@@ -154,6 +203,37 @@ function SettingsModal() {
             })}
           </View>
 
+          <View style={[styles.privacy, { borderTopColor: c.border }]}>
+            <Text style={[styles.label, { color: c.textTertiary }]}>YOUR PRIVACY</Text>
+            <Text style={[styles.privacyText, { color: c.textSecondary }]}>
+              Your data is yours. We never sell it, and it’s protected so only you can read it — Luna and
+              the community only ever see what you choose to share.
+            </Text>
+            <Pressable
+              onPress={onExport}
+              disabled={exporting}
+              style={[styles.privacyBtn, { borderColor: c.border }]}>
+              <Ionicons name="download-outline" size={16} color={c.text} />
+              <Text style={[styles.privacyBtnText, { color: c.text }]}>
+                {exporting ? 'Preparing…' : 'Export my data'}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={onDelete}
+              disabled={deleting}
+              style={[styles.privacyBtn, { borderColor: confirmDelete ? '#C2545A' : c.border }]}>
+              <Ionicons name="trash-outline" size={16} color="#C2545A" />
+              <Text style={[styles.privacyBtnText, { color: '#C2545A' }]}>
+                {deleting ? 'Deleting…' : confirmDelete ? 'Tap again to permanently delete' : 'Delete my data'}
+              </Text>
+            </Pressable>
+            {confirmDelete ? (
+              <Text style={[styles.privacyWarn, { color: c.textTertiary }]}>
+                This erases all your logs, diary, chats and posts. It can’t be undone.
+              </Text>
+            ) : null}
+          </View>
+
           <View style={[styles.account, { borderTopColor: c.border }]}>
             <View style={styles.accountInfo}>
               <Text style={[styles.accountName, { color: c.text }]}>{profile.name || 'You'}</Text>
@@ -204,6 +284,25 @@ const styles = StyleSheet.create({
     borderWidth: 2,
   },
   swatchLabel: { fontSize: 11 },
+  privacy: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    marginTop: spacing.xl,
+    paddingTop: spacing.lg,
+    gap: spacing.sm,
+  },
+  privacyText: { fontSize: 13, lineHeight: 19, marginBottom: spacing.xs },
+  privacyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.pill,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    alignSelf: 'flex-start',
+  },
+  privacyBtnText: { fontSize: 14, fontWeight: '500' },
+  privacyWarn: { fontSize: 12, lineHeight: 17 },
   account: {
     flexDirection: 'row',
     alignItems: 'center',
