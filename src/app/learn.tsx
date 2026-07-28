@@ -19,26 +19,21 @@ import { useCycle } from '@/lib/cycle';
 import { useEntries, type Entry } from '@/lib/entries';
 import { dayKey } from '@/lib/format';
 import { polishJournal } from '@/lib/journal';
+import { useMedication } from '@/lib/medication';
 import { petEmoji, useSession } from '@/lib/session';
+import { useWellness } from '@/lib/wellness';
 import { fonts, MOODS, moodByKey, radius, spacing, useTheme, type MoodKey } from '@/lib/theme';
 
-function petStage(level: number): string {
-  if (level <= 1) return 'Hatchling';
-  if (level <= 3) return 'Baby';
-  if (level <= 6) return 'Growing';
-  return 'Grown';
-}
-
-function computeStreak(entries: Entry[]): number {
-  if (entries.length === 0) return 0;
-  const days = new Set(entries.map((e) => dayKey(e.createdAt)));
-  let streak = 0;
-  const cursor = new Date();
-  while (days.has(dayKey(cursor.getTime()))) {
-    streak += 1;
-    cursor.setDate(cursor.getDate() - 1);
-  }
-  return streak;
+// The companion mirrors how kindly you've been treating yourself lately —
+// not a punishing streak.
+function petMoodFor(careDays: number, petName: string): { label: string; message: string } {
+  if (careDays >= 5)
+    return { label: 'Thriving', message: `${petName} is thriving — you've been so good to yourself lately 💚` };
+  if (careDays >= 3)
+    return { label: 'Content', message: `${petName} is content — you've been showing up for yourself.` };
+  if (careDays >= 1)
+    return { label: 'Settling in', message: `You've started tending to ${petName} this week — keep it going.` };
+  return { label: 'Resting', message: `${petName} is dozing — a little check-in today would perk them right up.` };
 }
 
 const SOURCE_META: Record<Entry['source'], { icon: string; label: string }> = {
@@ -49,10 +44,13 @@ const SOURCE_META: Record<Entry['source'], { icon: string; label: string }> = {
 
 export default function LearnScreen() {
   const c = useTheme();
-  const { today } = useCycle();
+  const { today, flowLogs } = useCycle();
   const { entries, addEntry } = useEntries();
+  const { logs: wellnessLogs } = useWellness();
+  const { logs: medLogs } = useMedication();
   const { profile } = useSession();
   const pet = profile.pet;
+  const petName = pet?.name ?? 'Your companion';
   const [expanded, setExpanded] = useState<string | null>(null);
 
   // Journal composer
@@ -71,10 +69,24 @@ export default function LearnScreen() {
   const lesson = LESSONS[lessonIdx] ?? LESSONS[0];
   const nextLesson = () => setLessonIdx((i) => (i + 1) % LESSONS.length);
 
-  const { level, streak, progress } = useMemo(() => {
-    const lvl = Math.floor(entries.length / 3) + 1;
-    return { level: lvl, streak: computeStreak(entries), progress: (entries.length % 3) / 3 };
-  }, [entries]);
+  const { level, careDays, careWeekPct } = useMemo(() => {
+    // Any self-care action counts: journaling, or logging flow/mood/symptoms/meds.
+    const active = new Set<string>();
+    entries.forEach((e) => active.add(dayKey(e.createdAt)));
+    Object.keys(flowLogs).forEach((k) => active.add(k));
+    Object.keys(wellnessLogs).forEach((k) => active.add(k));
+    Object.keys(medLogs).forEach((k) => active.add(k));
+    let cared = 0;
+    const now = new Date();
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(now);
+      d.setDate(now.getDate() - i);
+      if (active.has(dayKey(d.getTime()))) cared += 1;
+    }
+    return { level: Math.min(8, Math.floor(active.size / 3) + 1), careDays: cared, careWeekPct: cared / 7 };
+  }, [entries, flowLogs, wellnessLogs, medLogs]);
+
+  const petMood = petMoodFor(careDays, petName);
 
   const openComposer = () => {
     setStep('write');
@@ -132,13 +144,17 @@ export default function LearnScreen() {
             {petEmoji(pet?.key)}
           </Text>
           <View style={styles.flex}>
-            <Text style={[styles.seedTitle, { color: c.accentText }]}>{pet?.name ?? 'Your companion'}</Text>
+            <Text style={[styles.seedTitle, { color: c.accentText }]}>{petName}</Text>
             <Text style={[styles.seedMeta, { color: c.accentText }]}>
-              {petStage(level)} · Level {level} · {streak} day streak
+              {petMood.label} · Level {level}
             </Text>
+            <Text style={[styles.seedMsg, { color: c.accentText }]}>{petMood.message}</Text>
             <View style={[styles.progressTrack, { backgroundColor: 'rgba(255,255,255,0.25)' }]}>
-              <View style={[styles.progressFill, { width: `${Math.round(progress * 100)}%`, backgroundColor: c.tan }]} />
+              <View style={[styles.progressFill, { width: `${Math.round(careWeekPct * 100)}%`, backgroundColor: c.tan }]} />
             </View>
+            <Text style={[styles.seedFoot, { color: c.accentText }]}>
+              {careDays}/7 days of self-care this week
+            </Text>
           </View>
         </Card>
 
@@ -362,7 +378,9 @@ const styles = StyleSheet.create({
   seed: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   petEmoji: { textAlign: 'center' },
   seedTitle: { fontSize: 16, fontWeight: '500' },
-  seedMeta: { fontSize: 13, opacity: 0.85, marginTop: 2, marginBottom: spacing.md },
+  seedMeta: { fontSize: 13, opacity: 0.85, marginTop: 2 },
+  seedMsg: { fontSize: 13, opacity: 0.95, lineHeight: 19, marginTop: 4, marginBottom: spacing.md },
+  seedFoot: { fontSize: 11, opacity: 0.8, marginTop: 6 },
   progressTrack: { height: 6, borderRadius: radius.pill, overflow: 'hidden' },
   progressFill: { height: 6, borderRadius: radius.pill },
   insightList: { gap: spacing.lg },
