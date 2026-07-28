@@ -49,6 +49,10 @@ export default function UnityScreen() {
   const [replyError, setReplyError] = useState<string | null>(null);
 
   const [refreshing, setRefreshing] = useState(false);
+  const [onlyMyPhase, setOnlyMyPhase] = useState(false);
+
+  const inPhase = feed.filter((p) => (p.phase ?? '').toLowerCase() === phaseTitle.toLowerCase());
+  const shown = onlyMyPhase ? inPhase : feed;
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -168,14 +172,36 @@ export default function UnityScreen() {
         <SectionTitle style={styles.noMargin}>Community</SectionTitle>
         <Text style={[styles.feedHint, { color: c.textTertiary }]}>Pull down to refresh · updates live</Text>
 
+        <View style={styles.filterRow}>
+          <Pressable
+            onPress={() => setOnlyMyPhase(true)}
+            style={[styles.filterPill, { borderColor: c.border }, onlyMyPhase && { backgroundColor: c.green, borderColor: c.green }]}>
+            <Text style={[styles.filterText, { color: onlyMyPhase ? c.accentText : c.textSecondary }]}>
+              In your {phaseTitle} phase{inPhase.length ? ` · ${inPhase.length}` : ''}
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setOnlyMyPhase(false)}
+            style={[styles.filterPill, { borderColor: c.border }, !onlyMyPhase && { backgroundColor: c.green, borderColor: c.green }]}>
+            <Text style={[styles.filterText, { color: !onlyMyPhase ? c.accentText : c.textSecondary }]}>All</Text>
+          </Pressable>
+        </View>
+        {onlyMyPhase && inPhase.length > 0 ? (
+          <Text style={[styles.filterNote, { color: c.textSecondary }]}>
+            You’re not the only one in your {phaseTitle.toLowerCase()} phase right now 💚
+          </Text>
+        ) : null}
+
         {!ready ? (
           <ActivityIndicator style={styles.loading} color={c.green} />
-        ) : feed.length === 0 ? (
+        ) : shown.length === 0 ? (
           <Text style={[styles.empty, { color: c.textTertiary }]}>
-            No posts yet — be the first to share something with the Greenhouse.
+            {onlyMyPhase
+              ? `No one else has posted from their ${phaseTitle.toLowerCase()} phase yet — share how you're feeling.`
+              : 'No posts yet — be the first to share something with the Greenhouse.'}
           </Text>
         ) : (
-          feed.map((p) => {
+          shown.map((p) => {
             const open = expanded === p.id;
             return (
               <Card key={p.id} variant="outline" style={styles.post}>
@@ -360,6 +386,15 @@ const styles = StyleSheet.create({
   dropdown: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   dropdownText: { fontSize: 13 },
   feedHint: { fontSize: 12, marginTop: -spacing.sm, marginBottom: spacing.md },
+  filterRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
+  filterPill: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.pill,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+  },
+  filterText: { fontSize: 13, fontWeight: '500' },
+  filterNote: { fontSize: 13, lineHeight: 19, marginBottom: spacing.md },
   loading: { marginVertical: spacing.xl },
   empty: { fontSize: 14, lineHeight: 21, paddingVertical: spacing.md },
   post: { marginBottom: spacing.md },
