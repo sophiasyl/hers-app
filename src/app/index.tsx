@@ -1,8 +1,9 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { getDailyBrief, STATIC_BRIEF, type DailyBrief } from '@/lib/brief';
 import { CycleCalendar } from '@/components/CycleCalendar';
 import { CycleRing } from '@/components/CycleRing';
 import { DayDetail } from '@/components/DayDetail';
@@ -51,6 +52,41 @@ export default function TrackScreen() {
   const [meds, setMeds] = useState<string[]>([]);
   const [customMed, setCustomMed] = useState('');
   const [dayDetail, setDayDetail] = useState<string | null>(null);
+  const [brief, setBrief] = useState<DailyBrief | null>(null);
+
+  const todayLog = [
+    loggedFlow ? `${loggedFlow} flow` : null,
+    todayWellness?.mood ? `mood ${moodByKey(todayWellness.mood)?.label.toLowerCase() ?? todayWellness.mood}` : null,
+    todayWellness?.symptoms?.length ? `symptoms ${todayWellness.symptoms.join(', ').toLowerCase()}` : null,
+    todayMeds?.length ? `took ${todayMeds.join(', ').toLowerCase()}` : null,
+  ]
+    .filter(Boolean)
+    .join('; ');
+
+  useEffect(() => {
+    let active = true;
+    getDailyBrief({
+      phase: today.content.label,
+      phaseKey: today.phase,
+      day: today.day,
+      daysUntilNextPeriod: today.daysUntilNextPeriod,
+      recentLogs: todayLog || undefined,
+      dayKey: todayKey,
+    }).then((b) => {
+      if (active) setBrief(b);
+    });
+    return () => {
+      active = false;
+    };
+  }, [today.phase, today.day, todayLog, todayKey]);
+
+  const dayBrief = brief ?? STATIC_BRIEF[today.phase] ?? STATIC_BRIEF.follicular;
+  const briefRows: { icon: string; text: string }[] = [
+    { icon: 'flash-outline', text: dayBrief.energy },
+    { icon: 'walk-outline', text: dayBrief.movement },
+    { icon: 'restaurant-outline', text: dayBrief.nourish },
+    { icon: 'heart-outline', text: dayBrief.mind },
+  ];
 
   const open = () => {
     setFlow(loggedFlow ?? null);
@@ -165,8 +201,26 @@ export default function TrackScreen() {
         </Card>
 
         <Card style={styles.logicCard}>
-          <Text style={[styles.logicTitle, { color: c.text }]}>Today's Body Logic</Text>
-          <Text style={[styles.logicBody, { color: c.textSecondary }]}>{today.content.bodyLogic}</Text>
+          <View style={styles.briefHeader}>
+            <Text style={[styles.logicTitle, { color: c.text }]}>Today, by your cycle</Text>
+            {brief ? (
+              <View style={styles.briefBadge}>
+                <Ionicons name="sparkles" size={11} color={c.green} />
+                <Text style={[styles.briefBadgeText, { color: c.green }]}>For you</Text>
+              </View>
+            ) : null}
+          </View>
+          <Text style={[styles.logicBody, { color: c.textSecondary }]}>{dayBrief.summary}</Text>
+          <View style={styles.briefRows}>
+            {briefRows.map((r) => (
+              <View key={r.icon} style={styles.briefRow}>
+                <View style={[styles.briefIcon, { backgroundColor: c.greenSoft }]}>
+                  <Ionicons name={r.icon as never} size={15} color={c.green} />
+                </View>
+                <Text style={[styles.briefRowText, { color: c.textSecondary }]}>{r.text}</Text>
+              </View>
+            ))}
+          </View>
         </Card>
 
         <Pressable
@@ -379,8 +433,15 @@ const styles = StyleSheet.create({
   chanceNote: { fontSize: 14, lineHeight: 21 },
   chanceCaveat: { fontSize: 12, lineHeight: 17, marginTop: spacing.sm },
   logicCard: { marginBottom: spacing.lg },
-  logicTitle: { fontSize: 16, fontWeight: '500', marginBottom: spacing.sm },
-  logicBody: { fontSize: 15, lineHeight: 23 },
+  logicTitle: { fontSize: 16, fontWeight: '500' },
+  logicBody: { fontSize: 15, lineHeight: 23, marginTop: spacing.sm },
+  briefHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  briefBadge: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  briefBadgeText: { fontSize: 11, fontWeight: '600' },
+  briefRows: { gap: spacing.md, marginTop: spacing.lg },
+  briefRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
+  briefIcon: { width: 30, height: 30, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
+  briefRowText: { flex: 1, fontSize: 14, lineHeight: 20 },
   cta: {
     borderRadius: radius.pill,
     paddingVertical: spacing.lg,
