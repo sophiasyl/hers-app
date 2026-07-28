@@ -16,7 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ScreenHeader } from '@/components/ui';
 import { useCycle, type FlowLevel } from '@/lib/cycle';
-import { useEntries } from '@/lib/entries';
+import { useEntries, type Entry } from '@/lib/entries';
 import { dayKey } from '@/lib/format';
 import { polishJournal } from '@/lib/journal';
 import { LUNA_GREETING, sendToLuna, startChat, type LunaMessage } from '@/lib/luna';
@@ -53,6 +53,58 @@ function buildRecentLogs(
   return lines.join('\n');
 }
 
+function dayFromKey(k: string): number {
+  const [y, m, d] = k.split('-').map(Number);
+  return new Date(y, m, d).getTime();
+}
+
+// Recent diary entries, so Luna can answer questions about the user's past.
+function buildJournalContext(entries: Entry[]): string {
+  if (!entries.length) return '';
+  const lines = entries.slice(0, 10).map((e) => {
+    const d = new Date(e.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    const title = e.title ? `${e.title} — ` : '';
+    return `${d}: ${title}${e.body.replace(/\s+/g, ' ').slice(0, 220)}`;
+  });
+  return lines.join('\n').slice(0, 2500);
+}
+
+// Cross-cycle symptom/mood patterns grouped by phase.
+function buildPatternContext(
+  wellnessLogs: Record<string, DailyLog>,
+  phaseFor: (ms: number) => string,
+): string {
+  const order = ['menstrual', 'follicular', 'ovulatory', 'luteal'];
+  const tally: Record<string, { symptoms: Record<string, number>; moods: Record<string, number> }> = {};
+  for (const [k, w] of Object.entries(wellnessLogs)) {
+    const phase = phaseFor(dayFromKey(k));
+    const t = (tally[phase] ??= { symptoms: {}, moods: {} });
+    (w.symptoms ?? []).forEach((s) => (t.symptoms[s] = (t.symptoms[s] ?? 0) + 1));
+    if (w.mood) t.moods[w.mood] = (t.moods[w.mood] ?? 0) + 1;
+  }
+  const parts: string[] = [];
+  for (const p of order) {
+    const t = tally[p];
+    if (!t) continue;
+    const topSym = Object.entries(t.symptoms)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 2)
+      .map(([s]) => s.toLowerCase());
+    const topMoodKey = Object.entries(t.moods).sort((a, b) => b[1] - a[1])[0]?.[0];
+    const bits: string[] = [];
+    if (topSym.length) bits.push(`often ${topSym.join(' & ')}`);
+    if (topMoodKey) bits.push(`mood usually ${moodByKey(topMoodKey as MoodKey)?.label.toLowerCase() ?? topMoodKey}`);
+    if (bits.length) parts.push(`${p[0].toUpperCase()}${p.slice(1)}: ${bits.join('; ')}`);
+  }
+  return parts.join('\n');
+}
+
+const SUGGESTION_CHIPS = [
+  'What helped my symptoms last time?',
+  'How was my last luteal phase?',
+  'Any patterns you notice in me?',
+];
+
 const GREETING_ID = 'greeting';
 
 function greetingMsg(): LunaMessage {
@@ -65,8 +117,8 @@ function makeMsg(role: LunaMessage['role'], content: string): LunaMessage {
 
 export default function LunaScreen() {
   const c = useTheme();
-  const { today, flowLogs } = useCycle();
-  const { addEntry } = useEntries();
+  const { today, flowLogs, phaseFor } = useCycle();
+  const { addEntry, entries } = useEntries();
   const { logs: wellnessLogs } = useWellness();
   const { logs: medLogs } = useMedication();
   const { userId, profile } = useSession();
@@ -89,8 +141,8 @@ export default function LunaScreen() {
   const scrollDown = () =>
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
 
-  const send = async () => {
-    const text = draft.trim();
+  const send = async (override?: string) => {
+    const text = (override ?? draft).trim();
     if (!text || sending || !userId) return;
 
     const userMsg = makeMsg('user', text);
@@ -128,6 +180,8 @@ export default function LunaScreen() {
         day: today.day,
         daysUntilNextPeriod: today.daysUntilNextPeriod,
         recentLogs: buildRecentLogs(flowLogs, wellnessLogs, medLogs) || undefined,
+        journalContext: buildJournalContext(entries) || undefined,
+        patternContext: buildPatternContext(wellnessLogs, phaseFor) || undefined,
       },
     });
 
@@ -251,6 +305,22 @@ export default function LunaScreen() {
               </>
             ))}
 
+          {!hasConversation ? (
+            <View style={styles.chips}>
+              {SUGGESTION_CHIPS.map((chip) => (
+                <Pressable
+                  key={chip}
+                  onPress={() => send(chip)}
+                  style={[styles.chip, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}
+                  accessibilityRole="button"
+                  accessibilityLabel={chip}>
+                  <Ionicons name="sparkles-outline" size={12} color={c.green} />
+                  <Text style={[styles.chipText, { color: c.text }]}>{chip}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+
           <View style={[styles.inputBar, { backgroundColor: c.surfaceAlt }]}>
             <TextInput
               value={draft}
@@ -258,12 +328,12 @@ export default function LunaScreen() {
               placeholder="Chat with Luna…"
               placeholderTextColor={c.textTertiary}
               style={[styles.input, { color: c.text }]}
-              onSubmitEditing={send}
+              onSubmitEditing={() => send()}
               editable={!sending}
               returnKeyType="send"
             />
             <Pressable
-              onPress={send}
+              onPress={() => send()}
               disabled={sending || !draft.trim()}
               style={[styles.sendBtn, { backgroundColor: c.tan, opacity: sending || !draft.trim() ? 0.5 : 1 }]}
               accessibilityLabel="Send">
@@ -328,6 +398,17 @@ const styles = StyleSheet.create({
   typing: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   typingText: { fontSize: 14 },
   footer: { padding: spacing.lg, gap: spacing.md },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.pill,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  chipText: { fontSize: 13, fontWeight: '500' },
   convert: {
     flexDirection: 'row',
     alignItems: 'center',

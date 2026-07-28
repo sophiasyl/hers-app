@@ -31,6 +31,8 @@ interface LunaContext {
   day?: number; // cycle day
   daysUntilNextPeriod?: number;
   recentLogs?: string; // condensed recent flow/mood/symptom/medication log
+  journalContext?: string; // recent diary entries
+  patternContext?: string; // cross-cycle symptom/mood patterns
 }
 
 interface LunaRequest {
@@ -74,6 +76,23 @@ function buildSystem(ctx: LunaContext | undefined, priorContext: string | undefi
         'specific and to gently acknowledge how they have been — but weave it in naturally, do not just ' +
         'list it back:\n' +
         ctx.recentLogs.trim(),
+    );
+  }
+
+  if (ctx?.patternContext && ctx.patternContext.trim()) {
+    parts.push(
+      'Patterns across her cycles so far (from her own logs). Gently surface a relevant one when it ' +
+        'helps — e.g. "the last few luteal phases you\'ve mentioned…" — but never lecture:\n' +
+        ctx.patternContext.trim(),
+    );
+  }
+
+  if (ctx?.journalContext && ctx.journalContext.trim()) {
+    parts.push(
+      'Recent entries from her private diary, so you can answer questions about her past and reflect ' +
+        'back what she has shared. Draw on these when she asks things like "what helped last time" or ' +
+        '"how did I feel"; quote sparingly and stay warm. Never share these with anyone else:\n' +
+        ctx.journalContext.trim(),
     );
   }
 

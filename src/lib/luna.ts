@@ -21,6 +21,8 @@ export interface LunaContext {
   day?: number;
   daysUntilNextPeriod?: number;
   recentLogs?: string;
+  journalContext?: string; // recent diary entries (so Luna can answer about the past)
+  patternContext?: string; // cross-cycle symptom/mood patterns
 }
 
 interface MessageRow {
