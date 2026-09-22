@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 
+import { DEV_AUTOLOGIN, DEV_EMAIL, DEV_PASSWORD } from './devConfig';
 import { supabase } from './supabase';
 
 export interface Pet {
@@ -99,7 +100,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       .getSession()
       .then(async ({ data }) => {
         if (!active) return;
-        const u = data.session?.user ?? null;
+        let u = data.session?.user ?? null;
+        // Dev convenience: if nobody is signed in, silently sign into the shared
+        // test account so testing never requires logging in. See devConfig.ts —
+        // the onAuthStateChange listener below will pick up the new session too.
+        if (!u && DEV_AUTOLOGIN) {
+          const { data: signIn } = await supabase.auth.signInWithPassword({
+            email: DEV_EMAIL,
+            password: DEV_PASSWORD,
+          });
+          u = signIn?.user ?? null;
+        }
         setUserId(u?.id ?? null);
         setEmail(u?.email ?? null);
         if (u) await loadProfile(u.id);
