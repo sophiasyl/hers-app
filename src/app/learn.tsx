@@ -21,6 +21,7 @@ import { dayKey } from '@/lib/format';
 import { polishJournal } from '@/lib/journal';
 import { useMedication } from '@/lib/medication';
 import { petEmoji, useSession } from '@/lib/session';
+import { useVoiceRecorder } from '@/lib/voice';
 import { useWellness } from '@/lib/wellness';
 import { fonts, MOODS, moodByKey, radius, spacing, useTheme, type MoodKey } from '@/lib/theme';
 
@@ -63,6 +64,16 @@ export default function LearnScreen() {
   const [aiTitle, setAiTitle] = useState('');
   const [aiBody, setAiBody] = useState('');
 
+  // Voice → text: a spoken note gets transcribed and appended into the draft,
+  // then flows through the same "turn into a diary entry" step as typing.
+  const voice = useVoiceRecorder((text) => {
+    setDraft((d) => {
+      const trimmed = d.trim();
+      return trimmed ? `${trimmed} ${text}` : text;
+    });
+    setError(null);
+  });
+
   // Daily Lesson rotates through the library — a different one every few hours.
   const [lessonIdx, setLessonIdx] = useState(() => lessonIndexForTime(Date.now()));
   const [lessonReader, setLessonReader] = useState(false);
@@ -97,6 +108,11 @@ export default function LearnScreen() {
     setAiBody('');
     setGenerating(false);
     setComposer(true);
+  };
+
+  const closeComposer = () => {
+    voice.cancel();
+    setComposer(false);
   };
 
   const turnIntoJournal = async () => {
@@ -250,8 +266,8 @@ export default function LearnScreen() {
         </Pressable>
       </ScrollView>
 
-      <Modal visible={composer} transparent animationType="slide" onRequestClose={() => setComposer(false)}>
-        <Pressable style={styles.backdrop} onPress={() => setComposer(false)}>
+      <Modal visible={composer} transparent animationType="slide" onRequestClose={closeComposer}>
+        <Pressable style={styles.backdrop} onPress={closeComposer}>
           <Pressable style={[styles.sheet, { backgroundColor: c.surface }]} onPress={() => {}}>
             {step === 'write' ? (
               <>
@@ -277,16 +293,55 @@ export default function LearnScreen() {
                   })}
                 </View>
 
-                <Text style={[styles.fieldLabel, { color: c.textTertiary }]}>YOUR THOUGHTS</Text>
+                <View style={styles.fieldRow}>
+                  <Text style={[styles.fieldLabel, styles.fieldLabelInRow, { color: c.textTertiary }]}>
+                    YOUR THOUGHTS
+                  </Text>
+                  {voice.supported ? (
+                    <Pressable
+                      onPress={voice.toggle}
+                      disabled={voice.state === 'transcribing'}
+                      accessibilityLabel={voice.state === 'recording' ? 'Stop recording' : 'Record a voice note'}
+                      style={[
+                        styles.micBtn,
+                        {
+                          backgroundColor:
+                            voice.state === 'recording' ? '#C2545A' : c.greenSoft,
+                        },
+                      ]}>
+                      {voice.state === 'transcribing' ? (
+                        <>
+                          <ActivityIndicator size="small" color={c.green} />
+                          <Text style={[styles.micText, { color: c.green }]}>Transcribing…</Text>
+                        </>
+                      ) : voice.state === 'recording' ? (
+                        <>
+                          <Ionicons name="stop" size={13} color="#FFFFFF" />
+                          <Text style={[styles.micText, { color: '#FFFFFF' }]}>Tap to stop</Text>
+                        </>
+                      ) : (
+                        <>
+                          <Ionicons name="mic" size={14} color={c.green} />
+                          <Text style={[styles.micText, { color: c.green }]}>Speak</Text>
+                        </>
+                      )}
+                    </Pressable>
+                  ) : null}
+                </View>
                 <TextInput
                   value={draft}
                   onChangeText={setDraft}
-                  placeholder="Jot down whatever's on your mind — messy is fine…"
+                  placeholder={
+                    voice.supported
+                      ? "Jot down what's on your mind — or tap Speak to say it aloud…"
+                      : "Jot down whatever's on your mind — messy is fine…"
+                  }
                   placeholderTextColor={c.textTertiary}
                   multiline
                   style={[styles.composerInput, { color: c.text, backgroundColor: c.surfaceAlt }]}
                 />
 
+                {voice.error ? <Text style={[styles.errorText, { color: '#C2545A' }]}>{voice.error}</Text> : null}
                 {error ? <Text style={[styles.errorText, { color: '#C2545A' }]}>{error}</Text> : null}
 
                 <Pressable
@@ -430,6 +485,22 @@ const styles = StyleSheet.create({
   sheet: { borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, padding: spacing.xl, gap: spacing.sm },
   sheetTitle: { fontSize: 20, fontFamily: fonts.serif, marginBottom: spacing.xs },
   fieldLabel: { fontSize: 12, letterSpacing: 1, marginTop: spacing.sm },
+  fieldLabelInRow: { marginTop: 0 },
+  fieldRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: spacing.sm,
+  },
+  micBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+  },
+  micText: { fontSize: 12, fontWeight: '600' },
   moodRow: { flexDirection: 'row', gap: spacing.xs },
   moodItem: { padding: spacing.sm, borderRadius: radius.pill },
   composerInput: {

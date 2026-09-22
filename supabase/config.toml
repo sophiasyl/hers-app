@@ -18,3 +18,6 @@ verify_jwt = true
 
 [functions.brief]
 verify_jwt = true
+
+[functions.transcribe]
+verify_jwt = true
