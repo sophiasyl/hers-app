@@ -245,7 +245,9 @@ export default function TrackScreen() {
         ) : null}
 
         <SectionTitle style={styles.calendarTitle}>Cycle calendar</SectionTitle>
-        <Text style={[styles.calendarHint, { color: c.textTertiary }]}>Tap any day to see what you logged.</Text>
+        <Text style={[styles.calendarHint, { color: c.textTertiary }]}>
+          Tap any day to see it — or log a period you forgot.
+        </Text>
         <CycleCalendar onDayPress={(ms) => setDayDetail(dayKey(ms))} />
       </ScrollView>
 

@@ -16,7 +16,7 @@ function parseDayKey(k: string): Date {
 
 export function DayDetail({ dateKey, onClose }: { dateKey: string | null; onClose: () => void }) {
   const c = useTheme();
-  const { flowLogs } = useCycle();
+  const { flowLogs, logFlowFor, clearFlowFor } = useCycle();
   const { logs: wellnessLogs } = useWellness();
   const { logs: medLogs } = useMedication();
   const { entries } = useEntries();
@@ -25,7 +25,6 @@ export function DayDetail({ dateKey, onClose }: { dateKey: string | null; onClos
   const visible = dateKey != null;
   const key = dateKey ?? '';
   const flow = flowLogs[key];
-  const flowLabel = FLOW_LEVELS.find((f) => f.key === flow);
   const w = wellnessLogs[key];
   const mood = w?.mood ? moodByKey(w.mood as MoodKey) : undefined;
   const symptoms = w?.symptoms ?? [];
@@ -33,8 +32,13 @@ export function DayDetail({ dateKey, onClose }: { dateKey: string | null; onClos
   const dayEntries = entries.filter((e) => dayKey(e.createdAt) === key);
   const dayPosts = myPosts.filter((p) => dayKey(p.createdAt) === key);
 
-  const empty =
-    !flow && !mood && symptoms.length === 0 && meds.length === 0 && dayEntries.length === 0 && dayPosts.length === 0;
+  // Can't log a period in the future.
+  const todayMidnight = new Date();
+  todayMidnight.setHours(0, 0, 0, 0);
+  const isFuture = dateKey ? parseDayKey(dateKey).getTime() > todayMidnight.getTime() : false;
+
+  const otherEmpty =
+    !mood && symptoms.length === 0 && meds.length === 0 && dayEntries.length === 0 && dayPosts.length === 0;
 
   const label = dateKey ? parseDayKey(dateKey).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }) : '';
 
@@ -50,19 +54,46 @@ export function DayDetail({ dateKey, onClose }: { dateKey: string | null; onClos
           </View>
 
           <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
-            {empty ? (
-              <Text style={[styles.empty, { color: c.textTertiary }]}>Nothing logged on this day.</Text>
+            <Row label="Period / flow" c={c}>
+              {isFuture ? (
+                <Text style={[styles.hint, { color: c.textTertiary }]}>
+                  You can log this once the day arrives.
+                </Text>
+              ) : (
+                <>
+                  <View style={styles.flowChips}>
+                    {FLOW_LEVELS.map((f) => {
+                      const sel = flow === f.key;
+                      return (
+                        <Pressable
+                          key={f.key}
+                          onPress={() => (sel ? clearFlowFor(key) : logFlowFor(key, f.key))}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: sel }}
+                          accessibilityLabel={`${f.label} flow`}
+                          style={[
+                            styles.flowChip,
+                            { borderColor: sel ? f.color : c.border, backgroundColor: sel ? f.color + '22' : 'transparent' },
+                          ]}>
+                          <View style={[styles.dot, { backgroundColor: f.color }]} />
+                          <Text style={[styles.flowChipText, { color: sel ? c.text : c.textSecondary }]}>{f.label}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                  <Text style={[styles.hint, { color: c.textTertiary }]}>
+                    {flow
+                      ? 'Tap the selected level again to remove it.'
+                      : 'Forgot to log? Tap a flow level to record your period for this day.'}
+                  </Text>
+                </>
+              )}
+            </Row>
+
+            {otherEmpty ? (
+              <Text style={[styles.empty, { color: c.textTertiary }]}>Nothing else logged on this day.</Text>
             ) : (
               <>
-                {flowLabel ? (
-                  <Row label="Flow" c={c}>
-                    <View style={styles.chipRow}>
-                      <View style={[styles.dot, { backgroundColor: flowLabel.color }]} />
-                      <Text style={[styles.value, { color: c.text }]}>{flowLabel.label}</Text>
-                    </View>
-                  </Row>
-                ) : null}
-
                 {mood ? (
                   <Row label="Mood" c={c}>
                     <Text style={[styles.value, { color: mood.color }]}>{mood.label}</Text>
@@ -148,6 +179,18 @@ const styles = StyleSheet.create({
   value: { fontSize: 15, fontWeight: '500' },
   chipRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   dot: { width: 12, height: 12, borderRadius: 6 },
+  flowChips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  flowChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  flowChipText: { fontSize: 14, fontWeight: '500' },
+  hint: { fontSize: 12, lineHeight: 17, marginTop: spacing.sm },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   tag: { borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs },
   tagText: { fontSize: 13 },

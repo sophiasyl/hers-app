@@ -182,6 +182,10 @@ interface CycleContextValue {
   today: Today;
   ready: boolean;
   logFlow: (level: FlowLevel) => void;
+  /** Log/adjust flow for a specific day (e.g. backfilling a forgotten period). */
+  logFlowFor: (dateKey: string, level: FlowLevel) => void;
+  /** Remove a flow log for a specific day. */
+  clearFlowFor: (dateKey: string) => void;
   startPeriodToday: () => void;
   setup: (cfg: CycleConfig) => void;
   phaseFor: (dateMs: number) => Phase;
@@ -227,9 +231,8 @@ export function CycleProvider({ userId, children }: { userId: string; children: 
     };
   }, [userId]);
 
-  const logFlow = useCallback(
-    (level: FlowLevel) => {
-      const k = dayKey(Date.now());
+  const logFlowFor = useCallback(
+    (k: string, level: FlowLevel) => {
       setFlowLogs((prev) => ({ ...prev, [k]: level }));
       supabase
         .from('flow_logs')
@@ -238,6 +241,25 @@ export function CycleProvider({ userId, children }: { userId: string; children: 
     },
     [userId],
   );
+
+  const clearFlowFor = useCallback(
+    (k: string) => {
+      setFlowLogs((prev) => {
+        const next = { ...prev };
+        delete next[k];
+        return next;
+      });
+      supabase
+        .from('flow_logs')
+        .delete()
+        .eq('user_id', userId)
+        .eq('date', appKeyToDbDate(k))
+        .then(() => {});
+    },
+    [userId],
+  );
+
+  const logFlow = useCallback((level: FlowLevel) => logFlowFor(dayKey(Date.now()), level), [logFlowFor]);
 
   const startPeriodToday = useCallback(() => logFlow('medium'), [logFlow]);
 
@@ -288,8 +310,8 @@ export function CycleProvider({ userId, children }: { userId: string; children: 
   );
 
   const value = useMemo(
-    () => ({ config, flowLogs, today, ready, logFlow, startPeriodToday, setup, phaseFor }),
-    [config, flowLogs, today, ready, logFlow, startPeriodToday, setup, phaseFor],
+    () => ({ config, flowLogs, today, ready, logFlow, logFlowFor, clearFlowFor, startPeriodToday, setup, phaseFor }),
+    [config, flowLogs, today, ready, logFlow, logFlowFor, clearFlowFor, startPeriodToday, setup, phaseFor],
   );
 
   return <CycleContext.Provider value={value}>{children}</CycleContext.Provider>;
