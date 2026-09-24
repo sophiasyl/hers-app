@@ -5,8 +5,13 @@
 // How often it appears is controlled by the "Companion" scale in Settings
 // (catLevel 0 off · 1 gentle · 2 balanced · 3 playful). Changing the scale
 // makes the cat peek in almost immediately, as a live preview.
+//
+// NOTE: visibility is driven by plain state + a CSS transition (not RN
+// Animated), because on react-native-web an Animated opacity animation started
+// just before mount can get stuck at 0, leaving the bubble invisible. On web we
+// also anchor with position:fixed so it can't land below the fold.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { usePet } from '@/lib/pet';
@@ -25,13 +30,14 @@ const LINES = [
 
 // Per interactivity level: how soon the first peek, and the gap between peeks.
 function timingFor(level: number): { first: number; min: number; max: number } {
-  if (level >= 3) return { first: 8000, min: 45_000, max: 90_000 }; // playful
-  if (level === 2) return { first: 18_000, min: 150_000, max: 300_000 }; // balanced
-  return { first: 35_000, min: 360_000, max: 600_000 }; // gentle
+  if (level >= 3) return { first: 6000, min: 45_000, max: 90_000 }; // playful
+  if (level === 2) return { first: 15_000, min: 150_000, max: 300_000 }; // balanced
+  return { first: 30_000, min: 360_000, max: 600_000 }; // gentle
 }
 
-const PREVIEW_DELAY = 1600; // quick peek right after you change the scale
-const VISIBLE_MS = 6000;
+const PREVIEW_DELAY = 1400; // quick peek right after you change the scale
+const VISIBLE_MS = 6500;
+const EXIT_MS = 300;
 const TREAT = 3;
 
 export function CatPopIn() {
@@ -41,40 +47,39 @@ export function CatPopIn() {
   const { profile } = useSession();
   const { catLevel } = useSettings();
 
-  const [visible, setVisible] = useState(false);
+  const [mounted, setMounted] = useState(false); // in the DOM
+  const [shown, setShown] = useState(false); // slid in (drives the transition)
   const [line, setLine] = useState(LINES[0]);
   const [caught, setCaught] = useState(false);
 
-  const anim = useRef(new Animated.Value(0)).current;
   const showTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const enterTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const appearRef = useRef<() => void>(() => {});
   const gapRef = useRef(timingFor(2));
   const firstRun = useRef(true);
 
+  const clearAll = () => {
+    for (const t of [showTimer, hideTimer, enterTimer]) if (t.current) clearTimeout(t.current);
+  };
+
   const hide = useCallback(() => {
-    Animated.timing(anim, { toValue: 0, duration: 260, easing: Easing.in(Easing.quad), useNativeDriver: false }).start(
-      () => setVisible(false),
-    );
+    setShown(false); // slide/fade out
+    hideTimer.current = setTimeout(() => setMounted(false), EXIT_MS);
     // Schedule the next appearance (via ref to avoid a definition cycle).
     const g = gapRef.current;
     const gap = g.min + Math.random() * (g.max - g.min);
     showTimer.current = setTimeout(() => appearRef.current(), gap);
-  }, [anim]);
+  }, []);
 
   const appear = useCallback(() => {
     setLine(LINES[Math.floor(Math.random() * LINES.length)]);
     setCaught(false);
-    setVisible(true);
-    anim.setValue(0);
-    Animated.timing(anim, {
-      toValue: 1,
-      duration: 320,
-      easing: Easing.out(Easing.back(1.4)),
-      useNativeDriver: false,
-    }).start();
+    setMounted(true);
+    setShown(false);
+    enterTimer.current = setTimeout(() => setShown(true), 40); // next tick → slide in
     hideTimer.current = setTimeout(() => hide(), VISIBLE_MS);
-  }, [anim, hide]);
+  }, [hide]);
 
   useEffect(() => {
     appearRef.current = appear;
@@ -82,29 +87,20 @@ export function CatPopIn() {
 
   // (Re)schedule whenever the interactivity level changes.
   useEffect(() => {
-    if (showTimer.current) clearTimeout(showTimer.current);
-    if (hideTimer.current) clearTimeout(hideTimer.current);
-
+    clearAll();
     if (catLevel <= 0) {
-      // Off: hide anything showing and schedule nothing.
-      anim.setValue(0);
-      setVisible(false);
+      setShown(false);
+      setMounted(false);
       firstRun.current = false;
       return;
     }
-
     gapRef.current = timingFor(catLevel);
-    // On first mount honour the level's first-delay; when the user changes the
-    // scale, peek almost immediately so they see the effect.
+    // First mount honours the level's delay; a change peeks in almost at once.
     const delay = firstRun.current ? gapRef.current.first : PREVIEW_DELAY;
     firstRun.current = false;
     showTimer.current = setTimeout(() => appearRef.current(), delay);
-
-    return () => {
-      if (showTimer.current) clearTimeout(showTimer.current);
-      if (hideTimer.current) clearTimeout(hideTimer.current);
-    };
-  }, [catLevel, anim]);
+    return clearAll;
+  }, [catLevel]);
 
   const onTap = () => {
     if (!caught) {
@@ -112,17 +108,30 @@ export function CatPopIn() {
       setCaught(true);
     }
     if (hideTimer.current) clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(() => hide(), 900);
+    hideTimer.current = setTimeout(() => hide(), 1000);
   };
 
-  if (!visible) return null;
+  if (!mounted) return null;
 
-  const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [120, 0] });
+  // Web: fixed to the viewport + a CSS transition (robust; no rAF dependency).
+  const webStyle =
+    Platform.OS === 'web'
+      ? ({
+          position: 'fixed',
+          transitionProperty: 'opacity, transform',
+          transitionDuration: '260ms',
+          transitionTimingFunction: 'cubic-bezier(0.2, 0.8, 0.2, 1)',
+        } as unknown as object)
+      : {};
 
   return (
-    <Animated.View
+    <View
       pointerEvents="box-none"
-      style={[styles.wrap, { bottom: insets.bottom + 78, opacity: anim, transform: [{ translateY }] }]}>
+      style={[
+        styles.wrap,
+        webStyle,
+        { bottom: insets.bottom + 84, opacity: shown ? 1 : 0, transform: [{ translateY: shown ? 0 : 22 }] },
+      ]}>
       <Pressable
         onPress={onTap}
         accessibilityRole="button"
@@ -138,12 +147,12 @@ export function CatPopIn() {
           </Text>
         </View>
       </Pressable>
-    </Animated.View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: { position: 'absolute', right: spacing.lg, zIndex: 50 },
+  wrap: { position: 'absolute', right: spacing.lg, zIndex: 9999 },
   bubble: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -152,8 +161,8 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
-    maxWidth: 220,
-    boxShadow: '0 6px 20px rgba(0,0,0,0.14)',
+    maxWidth: 230,
+    boxShadow: '0 6px 22px rgba(0,0,0,0.18)',
   },
   emoji: { fontSize: 30 },
   textWrap: { flexShrink: 1 },
