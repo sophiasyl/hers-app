@@ -98,8 +98,14 @@ function buildSystem(ctx: LunaContext | undefined, priorContext: string | undefi
 
   if (priorContext && priorContext.trim()) {
     parts.push(
-      'Highlights from your PAST conversations with this person (so you can remember what they have ' +
-        'shared before). Refer back to these naturally when relevant, but do not recite them verbatim:\n' +
+      'Your PAST conversations with this person, oldest to newest, dated (their own messages are marked ' +
+        '"Them"). This is your memory of them. When you refer back — especially if they ask "what did we ' +
+        'talk about last time?" — recall what actually MATTERED: how they were feeling and what they were ' +
+        'going through (e.g. struggles with work, feeling low or lost, something they were worried or ' +
+        'excited about), NOT just the most recent or most trivial line like a passing "hello". If a recent ' +
+        'chat was only a quick greeting, reach back to the last meaningful thing they shared and gently ' +
+        'follow up on it ("last time you were carrying a lot about work — how has that been sitting with ' +
+        'you?"). Weave it in warmly and naturally; never recite these verbatim or list them:\n' +
         priorContext.trim(),
     );
   }

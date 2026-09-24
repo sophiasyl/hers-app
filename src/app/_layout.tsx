@@ -7,12 +7,14 @@ import { Pressable, StyleSheet, Text, View, useColorScheme } from 'react-native'
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AuthScreen } from '@/components/AuthScreen';
+import { CatPopIn } from '@/components/CatPopIn';
 import { Onboarding } from '@/components/Onboarding';
 import '@/lib/applyFonts';
 import { CommunityProvider } from '@/lib/community';
 import { CycleProvider } from '@/lib/cycle';
 import { EntriesProvider } from '@/lib/entries';
 import { MedicationProvider } from '@/lib/medication';
+import { PetProvider } from '@/lib/pet';
 import { SessionProvider, useSession } from '@/lib/session';
 import { SettingsProvider, useSettings } from '@/lib/settings';
 import { WellnessProvider } from '@/lib/wellness';
@@ -78,6 +80,7 @@ function AppChrome() {
           </View>
         </TabList>
       </Tabs>
+      <CatPopIn />
     </>
   );
 }
@@ -98,7 +101,13 @@ function Gate() {
         <WellnessProvider userId={userId}>
           <MedicationProvider userId={userId}>
             <CommunityProvider userId={userId} authorName={profile.name || 'Someone'}>
-              {profile.onboarded ? <AppChrome /> : <Onboarding />}
+              {profile.onboarded ? (
+                <PetProvider userId={userId} petName={profile.pet?.name || 'Your cat'}>
+                  <AppChrome />
+                </PetProvider>
+              ) : (
+                <Onboarding />
+              )}
             </CommunityProvider>
           </MedicationProvider>
         </WellnessProvider>

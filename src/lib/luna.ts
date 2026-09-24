@@ -28,15 +28,23 @@ export interface LunaContext {
 interface MessageRow {
   role: string;
   content: string;
+  created_at?: string;
 }
 
 // Shown as a local, un-persisted opening bubble each time Luna is opened.
 export const LUNA_GREETING =
   "Hi, I'm Luna. Fresh chat, blank slate — but I still remember our past talks. How are you feeling today?";
 
-// How much past-chat memory to hand Claude (kept bounded for cost + latency).
-const PRIOR_MESSAGE_LIMIT = 40;
-const PRIOR_CHAR_LIMIT = 4000;
+// How much past-chat memory to hand Luna (kept bounded for cost + latency).
+const PRIOR_MESSAGE_LIMIT = 80;
+const PRIOR_CHAR_LIMIT = 4500;
+
+function shortDate(iso: string | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
 
 /** Create a new chat row for this user and return its id (null on failure). */
 export async function startChat(userId: string): Promise<string | null> {
@@ -62,20 +70,33 @@ async function saveMessage(
 export async function loadPriorContext(userId: string, currentChatId: string): Promise<string> {
   const { data } = await supabase
     .from('luna_messages')
-    .select('role,content')
+    .select('role,content,created_at')
     .eq('user_id', userId)
     .neq('chat_id', currentChatId)
     .order('created_at', { ascending: false })
     .limit(PRIOR_MESSAGE_LIMIT);
   if (!data || !data.length) return '';
   // Newest-first from the query → flip to chronological for readability.
-  const lines = (data as MessageRow[])
-    .slice()
-    .reverse()
-    .map((r) => `${r.role === 'user' ? 'Them' : 'You (Luna)'}: ${r.content}`);
-  let text = lines.join('\n');
-  if (text.length > PRIOR_CHAR_LIMIT) text = '…' + text.slice(text.length - PRIOR_CHAR_LIMIT);
-  return text;
+  const rows = (data as MessageRow[]).slice().reverse();
+  const line = (r: MessageRow) =>
+    `[${shortDate(r.created_at)}] ${r.role === 'user' ? 'Them' : 'You (Luna)'}: ${r.content}`;
+
+  const full = rows.map(line).join('\n');
+  if (full.length <= PRIOR_CHAR_LIMIT) return full;
+
+  // Over budget: keep the person's OWN words (which carry what mattered),
+  // newest-first within the budget, then restore chronological order — so a
+  // long history of Luna's replies never crowds out their real feelings.
+  const kept: MessageRow[] = [];
+  let len = 0;
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (rows[i].role !== 'user') continue;
+    const l = line(rows[i]);
+    if (len + l.length + 1 > PRIOR_CHAR_LIMIT) break;
+    kept.push(rows[i]);
+    len += l.length + 1;
+  }
+  return kept.reverse().map(line).join('\n');
 }
 
 /**

@@ -1,6 +1,6 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -17,25 +17,11 @@ import { Card, ScreenHeader, SectionTitle } from '@/components/ui';
 import { LESSONS, lessonIndexForTime } from '@/lib/content';
 import { useCycle } from '@/lib/cycle';
 import { useEntries, type Entry } from '@/lib/entries';
-import { dayKey } from '@/lib/format';
 import { polishJournal } from '@/lib/journal';
-import { useMedication } from '@/lib/medication';
+import { ACCESSORIES, FOODS, foodByKey, usePet } from '@/lib/pet';
 import { petEmoji, useSession } from '@/lib/session';
 import { useVoiceRecorder } from '@/lib/voice';
-import { useWellness } from '@/lib/wellness';
 import { fonts, MOODS, moodByKey, radius, spacing, useTheme, type MoodKey } from '@/lib/theme';
-
-// The companion mirrors how kindly you've been treating yourself lately —
-// not a punishing streak.
-function petMoodFor(careDays: number, petName: string): { label: string; message: string } {
-  if (careDays >= 5)
-    return { label: 'Thriving', message: `${petName} is thriving — you've been so good to yourself lately 💚` };
-  if (careDays >= 3)
-    return { label: 'Content', message: `${petName} is content — you've been showing up for yourself.` };
-  if (careDays >= 1)
-    return { label: 'Settling in', message: `You've started tending to ${petName} this week — keep it going.` };
-  return { label: 'Resting', message: `${petName} is dozing — a little check-in today would perk them right up.` };
-}
 
 const SOURCE_META: Record<Entry['source'], { icon: string; label: string }> = {
   ai: { icon: 'sparkles-outline', label: 'Diary' },
@@ -45,14 +31,18 @@ const SOURCE_META: Record<Entry['source'], { icon: string; label: string }> = {
 
 export default function LearnScreen() {
   const c = useTheme();
-  const { today, flowLogs } = useCycle();
+  const { today } = useCycle();
   const { entries, addEntry } = useEntries();
-  const { logs: wellnessLogs } = useWellness();
-  const { logs: medLogs } = useMedication();
   const { profile } = useSession();
   const pet = profile.pet;
   const petName = pet?.name ?? 'Your companion';
+  const petState = usePet();
   const [expanded, setExpanded] = useState<string | null>(null);
+
+  // Companion shop / feeding
+  const [shopOpen, setShopOpen] = useState(false);
+  const [feedOpen, setFeedOpen] = useState(false);
+  const ownedFoods = FOODS.filter((f) => (petState.inventory[f.key] ?? 0) > 0);
 
   // Journal composer
   const [composer, setComposer] = useState(false);
@@ -79,25 +69,6 @@ export default function LearnScreen() {
   const [lessonReader, setLessonReader] = useState(false);
   const lesson = LESSONS[lessonIdx] ?? LESSONS[0];
   const nextLesson = () => setLessonIdx((i) => (i + 1) % LESSONS.length);
-
-  const { level, careDays, careWeekPct } = useMemo(() => {
-    // Any self-care action counts: journaling, or logging flow/mood/symptoms/meds.
-    const active = new Set<string>();
-    entries.forEach((e) => active.add(dayKey(e.createdAt)));
-    Object.keys(flowLogs).forEach((k) => active.add(k));
-    Object.keys(wellnessLogs).forEach((k) => active.add(k));
-    Object.keys(medLogs).forEach((k) => active.add(k));
-    let cared = 0;
-    const now = new Date();
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(now);
-      d.setDate(now.getDate() - i);
-      if (active.has(dayKey(d.getTime()))) cared += 1;
-    }
-    return { level: Math.min(8, Math.floor(active.size / 3) + 1), careDays: cared, careWeekPct: cared / 7 };
-  }, [entries, flowLogs, wellnessLogs, medLogs]);
-
-  const petMood = petMoodFor(careDays, petName);
 
   const openComposer = () => {
     setStep('write');
@@ -155,24 +126,82 @@ export default function LearnScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <ScreenHeader title="Education & Archive" />
 
-        <Card variant="green" style={styles.seed}>
-          <Text style={[styles.petEmoji, { fontSize: 36 + Math.min(level, 8) * 3 }]}>
-            {petEmoji(pet?.key)}
-          </Text>
-          <View style={styles.flex}>
-            <Text style={[styles.seedTitle, { color: c.accentText }]}>{petName}</Text>
-            <Text style={[styles.seedMeta, { color: c.accentText }]}>
-              {petMood.label} · Level {level}
+        <Card variant="green" style={styles.petCard}>
+          <View style={styles.petTop}>
+            <Text style={[styles.petEmoji, { fontSize: 40 + Math.min(petState.level, 8) * 3 }]}>
+              {petEmoji(pet?.key)}
             </Text>
-            <Text style={[styles.seedMsg, { color: c.accentText }]}>{petMood.message}</Text>
-            <View style={[styles.progressTrack, { backgroundColor: 'rgba(255,255,255,0.25)' }]}>
-              <View style={[styles.progressFill, { width: `${Math.round(careWeekPct * 100)}%`, backgroundColor: c.tan }]} />
+            <View style={styles.flex}>
+              <Text style={[styles.seedTitle, { color: c.accentText }]}>{petName}</Text>
+              <Text style={[styles.seedMeta, { color: c.accentText }]}>
+                {petState.mood.label} · Level {petState.level}
+              </Text>
             </View>
-            <Text style={[styles.seedFoot, { color: c.accentText }]}>
-              {careDays}/7 days of self-care this week
+            <View style={styles.energyPill}>
+              <Text style={[styles.energyText, { color: c.accentText }]}>⚡ {petState.energy}</Text>
+            </View>
+          </View>
+
+          <Text style={[styles.seedMsg, { color: c.accentText }]}>{petState.mood.message}</Text>
+
+          <View style={styles.statRow}>
+            <Text style={[styles.statLabel, { color: c.accentText }]}>Happiness</Text>
+            <Text style={[styles.statLabel, { color: c.accentText }]}>{petState.happiness}%</Text>
+          </View>
+          <View style={[styles.progressTrack, { backgroundColor: 'rgba(255,255,255,0.25)' }]}>
+            <View style={[styles.progressFill, { width: `${petState.happiness}%`, backgroundColor: c.tan }]} />
+          </View>
+
+          <View style={styles.statRow}>
+            <Text style={[styles.statLabel, { color: c.accentText }]}>Level {petState.level}</Text>
+            <Text style={[styles.statLabel, { color: c.accentText }]}>
+              {petState.maxLevel ? 'Max level' : `${petState.toNext} XP to level up`}
             </Text>
           </View>
+          <View style={[styles.progressTrack, { backgroundColor: 'rgba(255,255,255,0.25)' }]}>
+            <View
+              style={[styles.progressFill, { width: `${Math.round(petState.levelPct * 100)}%`, backgroundColor: '#FFFFFF' }]}
+            />
+          </View>
+
+          {petState.flash ? <Text style={[styles.flash, { color: c.accentText }]}>{petState.flash}</Text> : null}
+
+          <View style={styles.careRow}>
+            <Pressable
+              style={styles.careBtn}
+              onPress={() => (ownedFoods.length ? setFeedOpen(true) : setShopOpen(true))}
+              accessibilityLabel="Feed your cat">
+              <Text style={styles.careEmoji}>🍽️</Text>
+              <Text style={[styles.careLabel, { color: c.accentText }]}>Feed</Text>
+            </Pressable>
+            <Pressable style={styles.careBtn} onPress={petState.pet} accessibilityLabel="Pet your cat">
+              <Text style={styles.careEmoji}>🐾</Text>
+              <Text style={[styles.careLabel, { color: c.accentText }]}>Pet {petState.petsLeft ? `(${petState.petsLeft})` : ''}</Text>
+            </Pressable>
+            <Pressable style={styles.careBtn} onPress={petState.play} accessibilityLabel="Play with your cat">
+              <Text style={styles.careEmoji}>🧶</Text>
+              <Text style={[styles.careLabel, { color: c.accentText }]}>Play {petState.playsLeft ? `(${petState.playsLeft})` : ''}</Text>
+            </Pressable>
+            <Pressable style={styles.careBtn} onPress={() => setShopOpen(true)} accessibilityLabel="Open cat shop">
+              <Text style={styles.careEmoji}>🛒</Text>
+              <Text style={[styles.careLabel, { color: c.accentText }]}>Shop</Text>
+            </Pressable>
+          </View>
         </Card>
+
+        <View style={styles.accRow}>
+          {ACCESSORIES.map((a) => {
+            const got = petState.unlocked.includes(a.key);
+            return (
+              <View key={a.key} style={[styles.accChip, { backgroundColor: got ? c.greenSoft : c.surfaceAlt }]}>
+                <Text style={[styles.accEmoji, !got && styles.accLocked]}>{a.emoji}</Text>
+                <Text style={[styles.accLabel, { color: got ? c.green : c.textTertiary }]}>
+                  {got ? a.label : `Lv ${a.level}`}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
 
         <SectionTitle style={styles.topGap}>Today's Personal Insight</SectionTitle>
         <View style={styles.insightList}>
@@ -420,6 +449,95 @@ export default function LearnScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      <Modal visible={shopOpen} transparent animationType="slide" onRequestClose={() => setShopOpen(false)}>
+        <Pressable style={styles.backdrop} onPress={() => setShopOpen(false)}>
+          <Pressable style={[styles.sheet, { backgroundColor: c.surface }]} onPress={() => {}}>
+            <View style={styles.shopHeader}>
+              <Text style={[styles.sheetTitle, { color: c.text }]}>Cat shop</Text>
+              <Text style={[styles.energyBadge, { color: c.green, backgroundColor: c.greenSoft }]}>
+                ⚡ {petState.energy}
+              </Text>
+            </View>
+            <Text style={[styles.shopHint, { color: c.textTertiary }]}>
+              Earn energy by logging your cycle, mood, symptoms or meds — or writing your diary.
+            </Text>
+            {petState.flash ? <Text style={[styles.feedFlash, { color: c.green }]}>{petState.flash}</Text> : null}
+            {FOODS.map((f) => {
+              const owned = petState.inventory[f.key] ?? 0;
+              const canBuy = petState.energy >= f.cost;
+              return (
+                <View key={f.key} style={[styles.shopItem, { borderColor: c.border }]}>
+                  <Text style={styles.shopEmoji}>{f.emoji}</Text>
+                  <View style={styles.flex}>
+                    <Text style={[styles.shopName, { color: c.text }]}>
+                      {f.label}
+                      {owned ? `  ×${owned}` : ''}
+                    </Text>
+                    <Text style={[styles.shopMeta, { color: c.textTertiary }]}>
+                      +{f.happiness} happiness · +{f.xp} XP
+                    </Text>
+                  </View>
+                  <Pressable
+                    disabled={!canBuy}
+                    onPress={() => petState.buyFood(f.key)}
+                    style={[styles.buyBtn, { backgroundColor: canBuy ? c.green : c.surfaceAlt }]}>
+                    <Text style={[styles.buyText, { color: canBuy ? c.accentText : c.textTertiary }]}>⚡ {f.cost}</Text>
+                  </Pressable>
+                </View>
+              );
+            })}
+            <Pressable onPress={() => setShopOpen(false)} style={styles.linkBtn}>
+              <Text style={[styles.linkText, { color: c.textTertiary }]}>Done</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={feedOpen} transparent animationType="slide" onRequestClose={() => setFeedOpen(false)}>
+        <Pressable style={styles.backdrop} onPress={() => setFeedOpen(false)}>
+          <Pressable style={[styles.sheet, { backgroundColor: c.surface }]} onPress={() => {}}>
+            <Text style={[styles.sheetTitle, { color: c.text }]}>Feed {petName}</Text>
+            {petState.flash ? <Text style={[styles.feedFlash, { color: c.green }]}>{petState.flash}</Text> : null}
+            {FOODS.filter((f) => (petState.inventory[f.key] ?? 0) > 0).length === 0 ? (
+              <>
+                <Text style={[styles.shopHint, { color: c.textTertiary }]}>
+                  No food yet — pop into the shop to buy some.
+                </Text>
+                <Pressable
+                  onPress={() => {
+                    setFeedOpen(false);
+                    setShopOpen(true);
+                  }}
+                  style={[styles.saveBtn, { backgroundColor: c.green }]}>
+                  <Text style={[styles.saveText, { color: c.accentText }]}>Open shop</Text>
+                </Pressable>
+              </>
+            ) : (
+              FOODS.filter((f) => (petState.inventory[f.key] ?? 0) > 0).map((f) => (
+                <Pressable
+                  key={f.key}
+                  onPress={() => petState.feed(f.key)}
+                  style={[styles.shopItem, { borderColor: c.border }]}>
+                  <Text style={styles.shopEmoji}>{f.emoji}</Text>
+                  <View style={styles.flex}>
+                    <Text style={[styles.shopName, { color: c.text }]}>
+                      {f.label} ×{petState.inventory[f.key]}
+                    </Text>
+                    <Text style={[styles.shopMeta, { color: c.textTertiary }]}>
+                      +{f.happiness} happiness · +{f.xp} XP
+                    </Text>
+                  </View>
+                  <Text style={[styles.buyText, { color: c.green }]}>Feed →</Text>
+                </Pressable>
+              ))
+            )}
+            <Pressable onPress={() => setFeedOpen(false)} style={styles.linkBtn}>
+              <Text style={[styles.linkText, { color: c.textTertiary }]}>Done</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -430,14 +548,72 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   noMargin: { marginBottom: 0 },
   topGap: { marginTop: spacing.xl },
-  seed: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  petCard: { gap: spacing.xs },
+  petTop: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   petEmoji: { textAlign: 'center' },
   seedTitle: { fontSize: 16, fontWeight: '500' },
   seedMeta: { fontSize: 13, opacity: 0.85, marginTop: 2 },
-  seedMsg: { fontSize: 13, opacity: 0.95, lineHeight: 19, marginTop: 4, marginBottom: spacing.md },
-  seedFoot: { fontSize: 11, opacity: 0.8, marginTop: 6 },
+  seedMsg: { fontSize: 13, opacity: 0.95, lineHeight: 19, marginTop: 4, marginBottom: spacing.xs },
+  energyPill: {
+    borderRadius: radius.pill,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: spacing.md,
+    paddingVertical: 5,
+  },
+  energyText: { fontSize: 14, fontWeight: '700' },
+  statRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.sm, marginBottom: 4 },
+  statLabel: { fontSize: 11, opacity: 0.9, fontWeight: '600' },
   progressTrack: { height: 6, borderRadius: radius.pill, overflow: 'hidden' },
   progressFill: { height: 6, borderRadius: radius.pill },
+  flash: { fontSize: 13, fontWeight: '600', marginTop: spacing.sm, opacity: 0.95 },
+  careRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
+  careBtn: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+  },
+  careEmoji: { fontSize: 20 },
+  careLabel: { fontSize: 11, fontWeight: '600' },
+  accRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.md },
+  accChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 5,
+  },
+  accEmoji: { fontSize: 15 },
+  accLocked: { opacity: 0.35 },
+  accLabel: { fontSize: 11, fontWeight: '600' },
+  shopHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  energyBadge: {
+    fontSize: 14,
+    fontWeight: '700',
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 5,
+    overflow: 'hidden',
+  },
+  shopHint: { fontSize: 13, lineHeight: 19, marginTop: spacing.xs, marginBottom: spacing.sm },
+  shopItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  shopEmoji: { fontSize: 26 },
+  shopName: { fontSize: 15, fontWeight: '500' },
+  shopMeta: { fontSize: 12, marginTop: 2 },
+  buyBtn: { borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  buyText: { fontSize: 14, fontWeight: '700' },
+  feedFlash: { fontSize: 13, fontWeight: '600', marginBottom: spacing.sm },
   insightList: { gap: spacing.lg },
   insightRow: { flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start' },
   insightIcon: { width: 34, height: 34, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },

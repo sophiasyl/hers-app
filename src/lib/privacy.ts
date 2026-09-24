@@ -4,7 +4,7 @@
 import { supabase } from './supabase';
 
 export async function exportMyData(userId: string): Promise<Record<string, unknown>> {
-  const [prof, flow, well, med, jour, chats, msgs, posts, comments] = await Promise.all([
+  const [prof, flow, well, med, jour, chats, msgs, posts, comments, pet] = await Promise.all([
     supabase.from('profiles').select('*').eq('id', userId),
     supabase.from('flow_logs').select('*').eq('user_id', userId),
     supabase.from('wellness_logs').select('*').eq('user_id', userId),
@@ -14,6 +14,7 @@ export async function exportMyData(userId: string): Promise<Record<string, unkno
     supabase.from('luna_messages').select('*').eq('user_id', userId),
     supabase.from('community_posts').select('*').eq('user_id', userId),
     supabase.from('community_comments').select('*').eq('user_id', userId),
+    supabase.from('pet_state').select('*').eq('user_id', userId),
   ]);
   return {
     app: 'Hers.',
@@ -27,6 +28,7 @@ export async function exportMyData(userId: string): Promise<Record<string, unkno
     luna_messages: msgs.data ?? [],
     community_posts: posts.data ?? [],
     community_comments: comments.data ?? [],
+    pet_state: pet.data?.[0] ?? null,
   };
 }
 
@@ -43,5 +45,6 @@ export async function deleteMyData(userId: string): Promise<void> {
     supabase.from('community_comments').delete().eq('user_id', userId),
     supabase.from('community_reports').delete().eq('reporter_id', userId),
     supabase.from('community_posts').delete().eq('user_id', userId),
+    supabase.from('pet_state').delete().eq('user_id', userId),
   ]);
 }
