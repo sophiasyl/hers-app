@@ -1,12 +1,17 @@
 // The companion peeking in now and then while you use the app — a small,
-// gentle surprise. Slides up from the corner every few minutes, says a tiny
-// line, and if you tap it you find a treat (+energy). Auto-dismisses.
+// gentle surprise. Slides up from the corner, says a tiny line, and if you tap
+// it you find a treat (+energy). Auto-dismisses.
+//
+// How often it appears is controlled by the "Companion" scale in Settings
+// (catLevel 0 off · 1 gentle · 2 balanced · 3 playful). Changing the scale
+// makes the cat peek in almost immediately, as a live preview.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { usePet } from '@/lib/pet';
 import { petEmoji, useSession } from '@/lib/session';
+import { useSettings } from '@/lib/settings';
 import { radius, spacing, useTheme } from '@/lib/theme';
 
 const LINES = [
@@ -18,12 +23,15 @@ const LINES = [
   '*slow blink*',
 ];
 
-// First appearance is quick-ish so it's discoverable; later ones are spaced out.
-const FIRST_DELAY = 25_000;
-const MIN_GAP = 150_000; // ~2.5 min
-const MAX_GAP = 300_000; // ~5 min
-const VISIBLE_MS = 6000;
+// Per interactivity level: how soon the first peek, and the gap between peeks.
+function timingFor(level: number): { first: number; min: number; max: number } {
+  if (level >= 3) return { first: 8000, min: 45_000, max: 90_000 }; // playful
+  if (level === 2) return { first: 18_000, min: 150_000, max: 300_000 }; // balanced
+  return { first: 35_000, min: 360_000, max: 600_000 }; // gentle
+}
 
+const PREVIEW_DELAY = 1600; // quick peek right after you change the scale
+const VISIBLE_MS = 6000;
 const TREAT = 3;
 
 export function CatPopIn() {
@@ -31,6 +39,7 @@ export function CatPopIn() {
   const insets = useSafeAreaInsets();
   const { collectTreat } = usePet();
   const { profile } = useSession();
+  const { catLevel } = useSettings();
 
   const [visible, setVisible] = useState(false);
   const [line, setLine] = useState(LINES[0]);
@@ -40,13 +49,16 @@ export function CatPopIn() {
   const showTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const appearRef = useRef<() => void>(() => {});
+  const gapRef = useRef(timingFor(2));
+  const firstRun = useRef(true);
 
   const hide = useCallback(() => {
     Animated.timing(anim, { toValue: 0, duration: 260, easing: Easing.in(Easing.quad), useNativeDriver: false }).start(
       () => setVisible(false),
     );
     // Schedule the next appearance (via ref to avoid a definition cycle).
-    const gap = MIN_GAP + Math.random() * (MAX_GAP - MIN_GAP);
+    const g = gapRef.current;
+    const gap = g.min + Math.random() * (g.max - g.min);
     showTimer.current = setTimeout(() => appearRef.current(), gap);
   }, [anim]);
 
@@ -54,6 +66,7 @@ export function CatPopIn() {
     setLine(LINES[Math.floor(Math.random() * LINES.length)]);
     setCaught(false);
     setVisible(true);
+    anim.setValue(0);
     Animated.timing(anim, {
       toValue: 1,
       duration: 320,
@@ -67,13 +80,31 @@ export function CatPopIn() {
     appearRef.current = appear;
   }, [appear]);
 
+  // (Re)schedule whenever the interactivity level changes.
   useEffect(() => {
-    showTimer.current = setTimeout(() => appearRef.current(), FIRST_DELAY);
+    if (showTimer.current) clearTimeout(showTimer.current);
+    if (hideTimer.current) clearTimeout(hideTimer.current);
+
+    if (catLevel <= 0) {
+      // Off: hide anything showing and schedule nothing.
+      anim.setValue(0);
+      setVisible(false);
+      firstRun.current = false;
+      return;
+    }
+
+    gapRef.current = timingFor(catLevel);
+    // On first mount honour the level's first-delay; when the user changes the
+    // scale, peek almost immediately so they see the effect.
+    const delay = firstRun.current ? gapRef.current.first : PREVIEW_DELAY;
+    firstRun.current = false;
+    showTimer.current = setTimeout(() => appearRef.current(), delay);
+
     return () => {
       if (showTimer.current) clearTimeout(showTimer.current);
       if (hideTimer.current) clearTimeout(hideTimer.current);
     };
-  }, []);
+  }, [catLevel, anim]);
 
   const onTap = () => {
     if (!caught) {
@@ -91,10 +122,7 @@ export function CatPopIn() {
   return (
     <Animated.View
       pointerEvents="box-none"
-      style={[
-        styles.wrap,
-        { bottom: insets.bottom + 78, opacity: anim, transform: [{ translateY }] },
-      ]}>
+      style={[styles.wrap, { bottom: insets.bottom + 78, opacity: anim, transform: [{ translateY }] }]}>
       <Pressable
         onPress={onTap}
         accessibilityRole="button"

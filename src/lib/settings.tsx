@@ -25,6 +25,7 @@ export function useSettings(): SettingsValue {
 export function SettingsProvider({ children }: { children: ReactNode }) {
   const [themeKey, setThemeKeyState] = useState('forest');
   const [appearance, setAppearanceState] = useState<Appearance>('system');
+  const [catLevel, setCatLevelState] = useState(2);
   const [ready, setReady] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -34,9 +35,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       .then((raw) => {
         if (!active || !raw) return;
         try {
-          const parsed = JSON.parse(raw) as { themeKey?: string; appearance?: Appearance };
+          const parsed = JSON.parse(raw) as { themeKey?: string; appearance?: Appearance; catLevel?: number };
           if (parsed.themeKey) setThemeKeyState(parsed.themeKey);
           if (parsed.appearance) setAppearanceState(parsed.appearance);
+          if (typeof parsed.catLevel === 'number') setCatLevelState(parsed.catLevel);
         } catch {
           // ignore corrupt store
         }
@@ -49,38 +51,50 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const persist = useCallback((key: string, appr: Appearance) => {
-    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({ themeKey: key, appearance: appr })).catch(() => {});
+  const persist = useCallback((key: string, appr: Appearance, cat: number) => {
+    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({ themeKey: key, appearance: appr, catLevel: cat })).catch(
+      () => {},
+    );
   }, []);
 
   const setThemeKey = useCallback(
     (k: string) => {
       setThemeKeyState(k);
-      persist(k, appearance);
+      persist(k, appearance, catLevel);
     },
-    [appearance, persist],
+    [appearance, catLevel, persist],
   );
 
   const setAppearance = useCallback(
     (a: Appearance) => {
       setAppearanceState(a);
-      persist(themeKey, a);
+      persist(themeKey, a, catLevel);
     },
-    [themeKey, persist],
+    [themeKey, catLevel, persist],
+  );
+
+  const setCatLevel = useCallback(
+    (n: number) => {
+      setCatLevelState(n);
+      persist(themeKey, appearance, n);
+    },
+    [themeKey, appearance, persist],
   );
 
   const value = useMemo<SettingsValue>(
     () => ({
       themeKey,
       appearance,
+      catLevel,
       ready,
       settingsOpen,
       setThemeKey,
       setAppearance,
+      setCatLevel,
       openSettings: () => setSettingsOpen(true),
       closeSettings: () => setSettingsOpen(false),
     }),
-    [themeKey, appearance, ready, settingsOpen, setThemeKey, setAppearance],
+    [themeKey, appearance, catLevel, ready, settingsOpen, setThemeKey, setAppearance, setCatLevel],
   );
 
   return (
@@ -97,9 +111,19 @@ const APPEARANCES: { key: Appearance; label: string }[] = [
   { key: 'dark', label: 'Dark' },
 ];
 
+// How lively the companion is — controls how often it pops in while you use
+// the app (and its little check-in nudges).
+const CAT_LEVELS: { label: string; blurb: string }[] = [
+  { label: 'Off', blurb: 'Your cat stays on the Learn page — no surprise pop-ins.' },
+  { label: 'Gentle', blurb: 'A rare peek-in now and then. Calm and quiet.' },
+  { label: 'Balanced', blurb: 'Pops in every few minutes to say hi. A good middle.' },
+  { label: 'Playful', blurb: 'Loves your company — peeks in often with treats.' },
+];
+
 function SettingsModal() {
   const c = useTheme();
-  const { settingsOpen, closeSettings, themeKey, appearance, setThemeKey, setAppearance } = useSettings();
+  const { settingsOpen, closeSettings, themeKey, appearance, catLevel, setThemeKey, setAppearance, setCatLevel } =
+    useSettings();
   const { profile, email, userId, logOut } = useSession();
 
   const [exporting, setExporting] = useState(false);
@@ -203,6 +227,35 @@ function SettingsModal() {
             })}
           </View>
 
+          <View style={[styles.companion, { borderTopColor: c.border }]}>
+            <Text style={[styles.label, { color: c.textTertiary }]}>COMPANION</Text>
+            <Text style={[styles.companionSub, { color: c.textSecondary }]}>
+              How interactive is your cat? Drag the scale — the more playful, the more it peeks in while you
+              use the app.
+            </Text>
+            <View style={[styles.scaleTrack, { backgroundColor: c.surfaceAlt }]}>
+              {CAT_LEVELS.map((lvl, i) => {
+                const sel = catLevel === i;
+                return (
+                  <Pressable
+                    key={lvl.label}
+                    onPress={() => setCatLevel(i)}
+                    style={[styles.scaleItem, sel && { backgroundColor: c.green }]}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: sel }}
+                    accessibilityLabel={`Cat interactivity: ${lvl.label}`}>
+                    <Text style={[styles.scaleText, { color: sel ? c.accentText : c.textSecondary }]}>
+                      {lvl.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Text style={[styles.companionBlurb, { color: c.textTertiary }]}>
+              {CAT_LEVELS[catLevel]?.blurb ?? ''}
+            </Text>
+          </View>
+
           <View style={[styles.privacy, { borderTopColor: c.border }]}>
             <Text style={[styles.label, { color: c.textTertiary }]}>YOUR PRIVACY</Text>
             <Text style={[styles.privacyText, { color: c.textSecondary }]}>
@@ -284,6 +337,17 @@ const styles = StyleSheet.create({
     borderWidth: 2,
   },
   swatchLabel: { fontSize: 11 },
+  companion: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    marginTop: spacing.xl,
+    paddingTop: spacing.lg,
+    gap: spacing.sm,
+  },
+  companionSub: { fontSize: 13, lineHeight: 19 },
+  scaleTrack: { flexDirection: 'row', borderRadius: radius.md, padding: 3, marginTop: spacing.xs },
+  scaleItem: { flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.sm },
+  scaleText: { fontSize: 13, fontWeight: '600' },
+  companionBlurb: { fontSize: 12, lineHeight: 17 },
   privacy: {
     borderTopWidth: StyleSheet.hairlineWidth,
     marginTop: spacing.xl,

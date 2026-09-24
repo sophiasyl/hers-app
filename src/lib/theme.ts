@@ -129,10 +129,13 @@ export function buildAccents(primary: string, secondary: string, scheme: 'light'
 export interface SettingsValue {
   themeKey: string;
   appearance: Appearance;
+  /** How lively the companion is: 0 off · 1 gentle · 2 balanced · 3 playful. */
+  catLevel: number;
   ready: boolean;
   settingsOpen: boolean;
   setThemeKey: (k: string) => void;
   setAppearance: (a: Appearance) => void;
+  setCatLevel: (n: number) => void;
   openSettings: () => void;
   closeSettings: () => void;
 }
@@ -140,10 +143,12 @@ export interface SettingsValue {
 export const SettingsContext = createContext<SettingsValue>({
   themeKey: 'forest',
   appearance: 'system',
+  catLevel: 2,
   ready: false,
   settingsOpen: false,
   setThemeKey: () => {},
   setAppearance: () => {},
+  setCatLevel: () => {},
   openSettings: () => {},
   closeSettings: () => {},
 });
